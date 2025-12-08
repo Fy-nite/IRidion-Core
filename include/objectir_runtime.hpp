@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <any>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 #if defined(_WIN32)
     #if defined(OBJECTIR_RUNTIME_STATIC)
@@ -34,6 +35,7 @@
 
 namespace ObjectIR
 {
+    using json = nlohmann::json;
 
     // ============================================================================
     // Forward Declarations
@@ -202,6 +204,13 @@ namespace ObjectIR {
         [[nodiscard]] ObjectRef GetBaseInstance() const { return _baseInstance; }
         void SetBaseInstance(ObjectRef base) { _baseInstance = base; }
 
+        // Initialize field slots (used during object creation)
+        void InitializeFieldSlot(const std::string& fieldName) {
+            if (_fieldValues.find(fieldName) == _fieldValues.end()) {
+                _fieldValues[fieldName] = Value(); // Initialize to null/default
+            }
+        }
+
         // Generic data storage for native implementations
         template<typename T>
         void SetData(std::shared_ptr<T> data) {
@@ -293,6 +302,10 @@ namespace ObjectIR {
         void SetNativeImpl(NativeMethodImpl impl) { _nativeImpl = impl; }
         [[nodiscard]] NativeMethodImpl GetNativeImpl() const { return _nativeImpl; }
         void SetInstructions(std::vector<Instruction> instructions);
+        
+        // Label map for branch resolution
+        void SetLabelMap(const std::unordered_map<std::string, size_t>& labelMap) { _labelMap = labelMap; }
+        [[nodiscard]] const std::unordered_map<std::string, size_t>& GetLabelMap() const { return _labelMap; }
 
     private:
         std::string _name;
@@ -303,6 +316,7 @@ namespace ObjectIR {
         std::vector<std::pair<std::string, TypeReference>> _locals;
         std::vector<Instruction> _instructions;
         NativeMethodImpl _nativeImpl;
+        std::unordered_map<std::string, size_t> _labelMap; // Maps label names to instruction indices
     };
 
     // ============================================================================
@@ -515,6 +529,10 @@ namespace ObjectIR {
         // Method invocation
         Value InvokeMethod(ObjectRef object, const std::string &methodName, const std::vector<Value> &args);
         Value InvokeStaticMethod(ClassRef classType, const std::string &methodName, const std::vector<Value> &args);
+
+        // Reflection/export
+        [[nodiscard]] json ExportMetadata(bool includeInstructions = false) const;
+        [[nodiscard]] json ExportClassMetadata(const std::string& name, bool includeInstructions = false) const;
 
         // Global state
         [[nodiscard]] ExecutionContext *GetCurrentContext() const { return _currentContext.get(); }

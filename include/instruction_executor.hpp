@@ -34,7 +34,8 @@ public:
         ObjectRef thisPtr,
         const std::vector<Value>& args,
         ExecutionContext* context,
-        VirtualMachine* vm
+        VirtualMachine* vm,
+        const std::unordered_map<std::string, size_t>& labelMap = {}
     );
     
 private:

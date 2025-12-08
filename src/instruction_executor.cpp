@@ -166,63 +166,71 @@ std::vector<Instruction> ParseInstructionArray(const json& node) {
 } // namespace
 
 OpCode InstructionExecutor::ParseOpCode(const std::string& opStr) {
-    if (opStr == "nop") return OpCode::Nop;
-    if (opStr == "dup") return OpCode::Dup;
-    if (opStr == "pop") return OpCode::Pop;
+    const auto op = ToLowerInvariant(opStr);
+
+    if (op == "nop") return OpCode::Nop;
+    if (op == "dup") return OpCode::Dup;
+    if (op == "pop") return OpCode::Pop;
     
-    if (opStr == "ldarg") return OpCode::LdArg;
-    if (opStr == "ldloc") return OpCode::LdLoc;
-    if (opStr == "ldfld") return OpCode::LdFld;
-    if (opStr == "ldcon" || opStr == "ldc") return OpCode::LdCon;
-    if (opStr == "ldstr") return OpCode::LdStr;
-    if (opStr == "ldi4" || opStr == "ldi32") return OpCode::LdI4;
-    if (opStr == "ldi8" || opStr == "ldi64") return OpCode::LdI8;
-    if (opStr == "ldr4") return OpCode::LdR4;
-    if (opStr == "ldr8") return OpCode::LdR8;
-    if (opStr == "ldtrue") return OpCode::LdTrue;
-    if (opStr == "ldfalse") return OpCode::LdFalse;
-    if (opStr == "ldnull") return OpCode::LdNull;
+    if (op == "ldarg") return OpCode::LdArg;
+    if (op == "ldloc") return OpCode::LdLoc;
+    if (op == "ldfld") return OpCode::LdFld;
+    if (op == "ldcon" || op == "ldc") return OpCode::LdCon;
+    if (op == "ldstr") return OpCode::LdStr;
+    if (op == "ldi4" || op == "ldi32" || op == "ldc.i4") return OpCode::LdI4;
+    if (op == "ldi8" || op == "ldi64" || op == "ldc.i8") return OpCode::LdI8;
+    if (op == "ldr4" || op == "ldc.r4") return OpCode::LdR4;
+    if (op == "ldr8" || op == "ldc.r8") return OpCode::LdR8;
+    if (op == "ldtrue") return OpCode::LdTrue;
+    if (op == "ldfalse") return OpCode::LdFalse;
+    if (op == "ldnull") return OpCode::LdNull;
     
-    if (opStr == "stloc") return OpCode::StLoc;
-    if (opStr == "stfld") return OpCode::StFld;
-    if (opStr == "starg") return OpCode::StArg;
+    if (op == "stloc") return OpCode::StLoc;
+    if (op == "stfld") return OpCode::StFld;
+    if (op == "starg") return OpCode::StArg;
     
-    if (opStr == "add") return OpCode::Add;
-    if (opStr == "sub") return OpCode::Sub;
-    if (opStr == "mul") return OpCode::Mul;
-    if (opStr == "div") return OpCode::Div;
-    if (opStr == "rem") return OpCode::Rem;
-    if (opStr == "neg") return OpCode::Neg;
+    if (op == "add") return OpCode::Add;
+    if (op == "sub") return OpCode::Sub;
+    if (op == "mul") return OpCode::Mul;
+    if (op == "div") return OpCode::Div;
+    if (op == "rem") return OpCode::Rem;
+    if (op == "neg") return OpCode::Neg;
     
-    if (opStr == "ceq") return OpCode::Ceq;
-    if (opStr == "cne") return OpCode::Cne;
-    if (opStr == "clt") return OpCode::Clt;
-    if (opStr == "cle") return OpCode::Cle;
-    if (opStr == "cgt") return OpCode::Cgt;
-    if (opStr == "cge") return OpCode::Cge;
+    if (op == "ceq") return OpCode::Ceq;
+    if (op == "cne") return OpCode::Cne;
+    if (op == "clt") return OpCode::Clt;
+    if (op == "cle") return OpCode::Cle;
+    if (op == "cgt") return OpCode::Cgt;
+    if (op == "cge") return OpCode::Cge;
     
-    if (opStr == "ret") return OpCode::Ret;
-    if (opStr == "br") return OpCode::Br;
-    if (opStr == "brtrue") return OpCode::BrTrue;
-    if (opStr == "brfalse") return OpCode::BrFalse;
+    if (op == "ret") return OpCode::Ret;
+    if (op == "br") return OpCode::Br;
+    if (op == "brtrue") return OpCode::BrTrue;
+    if (op == "brfalse") return OpCode::BrFalse;
+    if (op == "beq" || op == "beq.s") return OpCode::Beq;
+    if (op == "bne" || op == "bne.un" || op == "bne.s") return OpCode::Bne;
+    if (op == "bgt" || op == "bgt.s" || op == "bgt.un") return OpCode::Bgt;
+    if (op == "blt" || op == "blt.s" || op == "blt.un") return OpCode::Blt;
+    if (op == "bge" || op == "bge.s" || op == "bge.un") return OpCode::Bge;
+    if (op == "ble" || op == "ble.s" || op == "ble.un") return OpCode::Ble;
     
-    if (opStr == "if") return OpCode::If;
+    if (op == "if") return OpCode::If;
     
-    if (opStr == "newobj") return OpCode::NewObj;
-    if (opStr == "call") return OpCode::Call;
-    if (opStr == "callvirt") return OpCode::CallVirt;
-    if (opStr == "castclass") return OpCode::CastClass;
-    if (opStr == "isinst") return OpCode::IsInst;
+    if (op == "newobj") return OpCode::NewObj;
+    if (op == "call") return OpCode::Call;
+    if (op == "callvirt") return OpCode::CallVirt;
+    if (op == "castclass") return OpCode::CastClass;
+    if (op == "isinst") return OpCode::IsInst;
     
-    if (opStr == "newarr") return OpCode::NewArr;
-    if (opStr == "ldelem") return OpCode::LdElem;
-    if (opStr == "stelem") return OpCode::StElem;
-    if (opStr == "ldlen") return OpCode::LdLen;
+    if (op == "newarr") return OpCode::NewArr;
+    if (op == "ldelem") return OpCode::LdElem;
+    if (op == "stelem") return OpCode::StElem;
+    if (op == "ldlen") return OpCode::LdLen;
     
-    if (opStr == "break") return OpCode::Break;
-    if (opStr == "continue") return OpCode::Continue;
-    if (opStr == "throw") return OpCode::Throw;
-    if (opStr == "while") return OpCode::While;
+    if (op == "break") return OpCode::Break;
+    if (op == "continue") return OpCode::Continue;
+    if (op == "throw") return OpCode::Throw;
+    if (op == "while") return OpCode::While;
     
     throw std::runtime_error("Unknown opcode: " + opStr);
 }
@@ -259,9 +267,25 @@ Instruction InstructionExecutor::ParseJsonInstruction(const json& instrJson) {
             if (operand.contains("field")) {
                 const auto& fieldJson = operand["field"];
                 FieldTarget ft;
-                ft.declaringType = fieldJson.value("declaringType", "");
-                ft.name = fieldJson.value("name", "");
-                ft.type = fieldJson.value("type", "");
+                
+                // Handle both string (from IR text parser) and object (from JSON) formats
+                if (fieldJson.is_string()) {
+                    // Simple string format from IR text parser: "ClassName.fieldName"
+                    std::string fieldStr = fieldJson.get<std::string>();
+                    size_t dotPos = fieldStr.find_last_of('.');
+                    if (dotPos != std::string::npos) {
+                        ft.declaringType = fieldStr.substr(0, dotPos);
+                        ft.name = fieldStr.substr(dotPos + 1);
+                    } else {
+                        ft.name = fieldStr;
+                    }
+                } else {
+                    // Object format: {"declaringType": "...", "name": "...", "type": "..."}
+                    ft.declaringType = fieldJson.value("declaringType", "");
+                    ft.name = fieldJson.value("name", "");
+                    ft.type = fieldJson.value("type", "");
+                }
+                
                 instr.fieldTarget = std::move(ft);
                 // Also populate operandString with the field name as a lightweight fallback
                 instr.operandString = instr.fieldTarget->name;
@@ -320,6 +344,32 @@ Instruction InstructionExecutor::ParseJsonInstruction(const json& instrJson) {
             }
             break;
 
+        case OpCode::Br:
+        case OpCode::BrTrue:
+        case OpCode::BrFalse:
+        case OpCode::Beq:
+        case OpCode::Bne:
+        case OpCode::Bgt:
+        case OpCode::Blt:
+        case OpCode::Bge:
+        case OpCode::Ble: {
+            if (operand.is_object()) {
+                if (operand.contains("target")) {
+                    instr.operandInt = operand.value("target", 0);
+                    instr.hasOperandInt = true;
+                } else if (operand.contains("offset")) {
+                    instr.operandInt = operand.value("offset", 0);
+                    instr.hasOperandInt = true;
+                }
+            } else if (operand.is_number_integer()) {
+                instr.operandInt = operand.get<int32_t>();
+                instr.hasOperandInt = true;
+            } else if (operand.is_string()) {
+                instr.operandString = operand.get<std::string>();
+            }
+            break;
+        }
+
         case OpCode::While: {
             if (!operand.is_object()) {
                 throw std::runtime_error("While instruction operand must be object");
@@ -355,8 +405,10 @@ Instruction InstructionExecutor::ParseJsonInstruction(const json& instrJson) {
                 instr.operandString = operand.get<std::string>();
             } else if (operand.is_number_integer()) {
                 instr.operandInt = operand.get<int32_t>();
+                instr.hasOperandInt = true;
             } else if (operand.is_number_float()) {
                 instr.operandDouble = operand.get<double>();
+                instr.hasOperandInt = true;
             }
             break;
     }
@@ -551,6 +603,17 @@ void InstructionExecutor::Execute(
             // Return handled at higher level
             break;
 
+        case OpCode::Br:
+        case OpCode::BrTrue:
+        case OpCode::BrFalse:
+        case OpCode::Beq:
+        case OpCode::Bne:
+        case OpCode::Bgt:
+        case OpCode::Blt:
+        case OpCode::Bge:
+        case OpCode::Ble:
+            throw std::runtime_error("Branch opcodes must be handled by the instruction dispatcher");
+
         case OpCode::NewObj: {
             if (instr.operandString.empty()) {
                 throw std::runtime_error("NewObj instruction missing type operand");
@@ -684,17 +747,72 @@ Value InstructionExecutor::ExecuteInstructions(
     ObjectRef thisPtr,
     const std::vector<Value>& args,
     ExecutionContext* context,
-    VirtualMachine* vm
+    VirtualMachine* vm,
+    const std::unordered_map<std::string, size_t>& labelMap
 ) {
     context->SetThis(thisPtr);
     context->SetArguments(args);
-    
-    for (size_t i = 0; i < instructions.size(); ++i) {
-        const auto& instr = instructions[i];
-        std::cerr << "[" << (context->GetMethod() ? context->GetMethod()->GetName() : std::string("<static>")) \
-                  << "] Executing instruction " << i << ": op=" << static_cast<int>(instr.opCode) \
+
+    auto resolveTarget = [&](const Instruction& instr) -> size_t {
+        int target = -1;
+        if (instr.hasOperandInt) {
+            target = instr.operandInt;
+        } else if (!instr.operandString.empty()) {
+            // First try to look up as a label name
+            auto labelIt = labelMap.find(instr.operandString);
+            if (labelIt != labelMap.end()) {
+                return labelIt->second;
+            }
+            // Otherwise try to parse as an integer
+            try {
+                target = std::stoi(instr.operandString);
+            } catch (...) {
+                throw std::runtime_error("Branch target not found: " + instr.operandString);
+            }
+        }
+
+        if (target < 0 || static_cast<size_t>(target) >= instructions.size()) {
+            throw std::runtime_error("Branch target out of range");
+        }
+        return static_cast<size_t>(target);
+    };
+
+    auto compareBranch = [&](OpCode cmp, const Value& left, const Value& right) -> bool {
+        switch (cmp) {
+            case OpCode::Beq:
+                if (left.IsString() && right.IsString()) return left.AsString() == right.AsString();
+                if (left.IsBool() && right.IsBool()) return left.AsBool() == right.AsBool();
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) == ValueToInt64(right);
+                return ValueToDouble(left) == ValueToDouble(right);
+            case OpCode::Bne:
+                if (left.IsString() && right.IsString()) return left.AsString() != right.AsString();
+                if (left.IsBool() && right.IsBool()) return left.AsBool() != right.AsBool();
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) != ValueToInt64(right);
+                return ValueToDouble(left) != ValueToDouble(right);
+            case OpCode::Bgt:
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) > ValueToInt64(right);
+                return ValueToDouble(left) > ValueToDouble(right);
+            case OpCode::Blt:
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) < ValueToInt64(right);
+                return ValueToDouble(left) < ValueToDouble(right);
+            case OpCode::Bge:
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) >= ValueToInt64(right);
+                return ValueToDouble(left) >= ValueToDouble(right);
+            case OpCode::Ble:
+                if ((left.IsInt32() || left.IsInt64()) && (right.IsInt32() || right.IsInt64())) return ValueToInt64(left) <= ValueToInt64(right);
+                return ValueToDouble(left) <= ValueToDouble(right);
+            default:
+                return false;
+        }
+    };
+
+    size_t ip = 0;
+    while (ip < instructions.size()) {
+        const auto& instr = instructions[ip];
+        std::cerr << "[" << (context->GetMethod() ? context->GetMethod()->GetName() : std::string("<static>"))
+                  << "] Executing instruction " << ip << ": op=" << static_cast<int>(instr.opCode)
                   << ", id='" << instr.identifier << "', operand='" << instr.operandString << "'" << std::endl;
-        
+
         if (instr.opCode == OpCode::Ret) {
             try {
                 return context->PopStack();
@@ -702,19 +820,60 @@ Value InstructionExecutor::ExecuteInstructions(
                 return Value();
             }
         }
-        
+
+        switch (instr.opCode) {
+            case OpCode::Br: {
+                ip = resolveTarget(instr);
+                continue;
+            }
+            case OpCode::BrTrue: {
+                bool cond = ValueToBool(context->PopStack());
+                if (cond) {
+                    ip = resolveTarget(instr);
+                    continue;
+                }
+                ++ip;
+                continue;
+            }
+            case OpCode::BrFalse: {
+                bool cond = ValueToBool(context->PopStack());
+                if (!cond) {
+                    ip = resolveTarget(instr);
+                    continue;
+                }
+                ++ip;
+                continue;
+            }
+            case OpCode::Beq:
+            case OpCode::Bne:
+            case OpCode::Bgt:
+            case OpCode::Blt:
+            case OpCode::Bge:
+            case OpCode::Ble: {
+                auto right = context->PopStack();
+                auto left = context->PopStack();
+                bool cond = compareBranch(instr.opCode, left, right);
+                if (cond) {
+                    ip = resolveTarget(instr);
+                    continue;
+                }
+                ++ip;
+                continue;
+            }
+            default:
+                break;
+        }
+
         // Special handling for while loops with binary conditions
-        // Need to re-execute setup instructions before each condition check
         if (instr.opCode == OpCode::While && instr.whileData.has_value()) {
             const auto& whileData = instr.whileData.value();
             if (whileData.condition.kind == ConditionKind::Binary) {
-                // Look back to collect setup instructions (ldloc, ldc immediately before while)
                 std::vector<Instruction> setupInstrs;
-                int setupIdx = static_cast<int>(i) - 1;
-                
+                int setupIdx = static_cast<int>(ip) - 1;
+
                 while (setupIdx >= 0) {
                     const auto& prevInstr = instructions[setupIdx];
-                    if (prevInstr.opCode == OpCode::LdLoc || 
+                    if (prevInstr.opCode == OpCode::LdLoc ||
                         prevInstr.opCode == OpCode::LdCon ||
                         prevInstr.opCode == OpCode::LdI4 ||
                         prevInstr.opCode == OpCode::LdI8 ||
@@ -729,49 +888,40 @@ Value InstructionExecutor::ExecuteInstructions(
                         break;
                     }
                 }
-                
-                // Execute while loop, re-running setup before each condition check
+
                 while (true) {
-                    // Re-execute setup to ensure values are on stack for condition check
                     for (const auto& setupInstr : setupInstrs) {
                         Execute(setupInstr, context, vm);
                     }
-                    
-                    // Evaluate condition (without running setup again)
+
                     bool cond_result;
-                    switch (whileData.condition.kind) {
-                        case ConditionKind::Binary: {
-                            if (whileData.condition.comparisonOp == OpCode::Nop) {
-                                throw std::runtime_error("Binary condition missing comparison operation");
-                            }
-                            auto right = context->PopStack();
-                            auto left = context->PopStack();
-                            context->PushStack(left);
-                            context->PushStack(right);
-                            
-                            switch (whileData.condition.comparisonOp) {
-                                case OpCode::Ceq: ExecuteCeq(context); break;
-                                case OpCode::Cne: ExecuteCne(context); break;
-                                case OpCode::Clt: ExecuteClt(context); break;
-                                case OpCode::Cle: ExecuteCle(context); break;
-                                case OpCode::Cgt: ExecuteCgt(context); break;
-                                case OpCode::Cge: ExecuteCge(context); break;
-                                default:
-                                    throw std::runtime_error("Unsupported comparison opcode in binary condition");
-                            }
-                            
-                            auto result = context->PopStack();
-                            cond_result = ValueToBool(result);
-                            break;
-                        }
-                        default:
-                            throw std::runtime_error("Expected binary condition in special while handler");
+                    if (whileData.condition.comparisonOp == OpCode::Nop) {
+                        throw std::runtime_error("Binary condition missing comparison operation");
                     }
-                    
+
+                    auto right = context->PopStack();
+                    auto left = context->PopStack();
+                    context->PushStack(left);
+                    context->PushStack(right);
+
+                    switch (whileData.condition.comparisonOp) {
+                        case OpCode::Ceq: ExecuteCeq(context); break;
+                        case OpCode::Cne: ExecuteCne(context); break;
+                        case OpCode::Clt: ExecuteClt(context); break;
+                        case OpCode::Cle: ExecuteCle(context); break;
+                        case OpCode::Cgt: ExecuteCgt(context); break;
+                        case OpCode::Cge: ExecuteCge(context); break;
+                        default:
+                            throw std::runtime_error("Unsupported comparison opcode in binary condition");
+                    }
+
+                    auto result = context->PopStack();
+                    cond_result = ValueToBool(result);
+
                     if (!cond_result) {
                         break;
                     }
-                    
+
                     try {
                         for (const auto& bodyInstr : whileData.body) {
                             Execute(bodyInstr, context, vm);
@@ -782,14 +932,15 @@ Value InstructionExecutor::ExecuteInstructions(
                         break;
                     }
                 }
-                continue;  // Skip normal Execute call
+                ++ip;
+                continue;
             }
         }
-        
+
         Execute(instr, context, vm);
+        ++ip;
     }
-    
-    // If no explicit return, return last stack value if available
+
     try {
         return context->PopStack();
     } catch (...) {

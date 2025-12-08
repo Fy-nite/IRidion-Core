@@ -54,6 +54,12 @@ enum class OpCode {
     Br,
     BrTrue,
     BrFalse,
+    Beq,
+    Bne,
+    Bgt,
+    Blt,
+    Bge,
+    Ble,
     If,
     
     // Object operations
@@ -107,6 +113,7 @@ struct Instruction {
     std::string operandString;
     int32_t operandInt = 0;
     double operandDouble = 0.0;
+    bool hasOperandInt = false;
 
     // Constant literal support
     bool hasConstant = false;
@@ -193,7 +200,8 @@ struct Instruction {
         : opCode(other.opCode),
           operandString(other.operandString),
           operandInt(other.operandInt),
-          operandDouble(other.operandDouble),
+                    operandDouble(other.operandDouble),
+                    hasOperandInt(other.hasOperandInt),
           hasConstant(other.hasConstant),
           constantType(other.constantType),
           constantRawValue(other.constantRawValue),
@@ -210,6 +218,7 @@ struct Instruction {
             operandString = other.operandString;
             operandInt = other.operandInt;
             operandDouble = other.operandDouble;
+            hasOperandInt = other.hasOperandInt;
             hasConstant = other.hasConstant;
             constantType = other.constantType;
             constantRawValue = other.constantRawValue;

@@ -21,7 +21,7 @@ bool IsFOBFile(const std::string& filePath) {
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <module_file> [entry_point] [args...]" << std::endl;
-        std::cerr << "  module_file: Path to .fob or .json ObjectIR module" << std::endl;
+        std::cerr << "  module_file: Path to .ir (text), .json, or .fob ObjectIR module" << std::endl;
         std::cerr << "  entry_point: Optional class.method entry point (default: Main.Main)" << std::endl;
         std::cerr << "  args: Optional arguments to pass to the entry point" << std::endl;
         return 1;
@@ -49,9 +49,9 @@ int main(int argc, char* argv[]) {
             vm = result.vm;
             std::cout << "Loaded FOB module with " << result.classNames.size() << " classes" << std::endl;
         } else {
-            // Load JSON file
+            // Text-first loader will handle .ir or .json
             vm = IRLoader::LoadFromFile(modulePath);
-            std::cout << "Loaded JSON module" << std::endl;
+            std::cout << "Loaded ObjectIR module" << std::endl;
         }
 
         if (!vm) {

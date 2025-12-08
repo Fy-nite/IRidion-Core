@@ -2,6 +2,7 @@
 #include "fob_loader.hpp"
 #include "instruction_executor.hpp"
 #include "stdlib.hpp"
+#include "ir_text_parser.hpp"
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -14,7 +15,7 @@ std::shared_ptr<VirtualMachine> IRLoader::LoadFromFile(const std::string& filePa
         auto result = FOBLoader::LoadFromFile(filePath);
         return result.vm;
     } else {
-        // Assume JSON format
+        // Prefer textual ObjectIR, fall back to JSON
         std::ifstream file(filePath);
         if (!file.is_open()) {
             throw std::runtime_error("Cannot open IR file: " + filePath);
@@ -22,7 +23,17 @@ std::shared_ptr<VirtualMachine> IRLoader::LoadFromFile(const std::string& filePa
 
         std::stringstream buffer;
         buffer << file.rdbuf();
-        return LoadFromString(buffer.str());
+        const std::string content = buffer.str();
+
+        // Try text IR first
+        try {
+            return LoadFromText(content);
+        } catch (const std::exception& textErr) {
+            std::cerr << "[IRLoader] Text parse failed, falling back to JSON: " << textErr.what() << std::endl;
+        }
+
+        // Fallback: assume JSON
+        return LoadFromString(content);
     }
 }
 
@@ -33,6 +44,11 @@ std::shared_ptr<VirtualMachine> IRLoader::LoadFromString(const std::string& json
     } catch (const json::parse_error& e) {
         throw std::runtime_error("JSON parse error: " + std::string(e.what()));
     }
+}
+
+std::shared_ptr<VirtualMachine> IRLoader::LoadFromText(const std::string& irText) {
+    auto moduleJson = IRTextParser::ParseToJson(irText);
+    return ParseModule(moduleJson);
 }
 
 std::shared_ptr<VirtualMachine> IRLoader::LoadFromFOBData(const std::vector<uint8_t>& data) {
@@ -175,6 +191,17 @@ void IRLoader::LoadMethods(ClassRef classRef, const json& methodsArray, std::sha
                 std::cerr << "  [" << name << "] Added local: " << localName << " (" << localType.ToString() << ")" << std::endl;
             }
             std::cerr << "  [" << name << "] Total locals: " << method->GetLocals().size() << std::endl;
+        }
+
+        // Load label map for branch resolution
+        if (methodJson.contains("labelMap") && methodJson["labelMap"].is_object()) {
+            std::unordered_map<std::string, size_t> labelMap;
+            const auto& labelMapJson = methodJson["labelMap"];
+            for (const auto& [labelName, targetIndex] : labelMapJson.items()) {
+                labelMap[labelName] = targetIndex.get<size_t>();
+                std::cerr << "  [" << name << "] Added label: " << labelName << " -> instruction " << targetIndex.get<size_t>() << std::endl;
+            }
+            method->SetLabelMap(labelMap);
         }
 
         // Load method body/instructions

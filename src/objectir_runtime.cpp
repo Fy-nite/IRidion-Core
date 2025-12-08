@@ -2,8 +2,206 @@
 #include "instruction_executor.hpp"
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ObjectIR {
+
+namespace {
+
+std::string OpCodeToString(OpCode op) {
+    switch (op) {
+        case OpCode::Nop: return "nop";
+        case OpCode::Dup: return "dup";
+        case OpCode::Pop: return "pop";
+        case OpCode::LdArg: return "ldarg";
+        case OpCode::LdLoc: return "ldloc";
+        case OpCode::LdFld: return "ldfld";
+        case OpCode::LdCon: return "ldc";
+        case OpCode::LdStr: return "ldstr";
+        case OpCode::LdI4: return "ldi4";
+        case OpCode::LdI8: return "ldi8";
+        case OpCode::LdR4: return "ldr4";
+        case OpCode::LdR8: return "ldr8";
+        case OpCode::LdTrue: return "ldtrue";
+        case OpCode::LdFalse: return "ldfalse";
+        case OpCode::LdNull: return "ldnull";
+        case OpCode::StLoc: return "stloc";
+        case OpCode::StFld: return "stfld";
+        case OpCode::StArg: return "starg";
+        case OpCode::Add: return "add";
+        case OpCode::Sub: return "sub";
+        case OpCode::Mul: return "mul";
+        case OpCode::Div: return "div";
+        case OpCode::Rem: return "rem";
+        case OpCode::Neg: return "neg";
+        case OpCode::Ceq: return "ceq";
+        case OpCode::Cne: return "cne";
+        case OpCode::Clt: return "clt";
+        case OpCode::Cle: return "cle";
+        case OpCode::Cgt: return "cgt";
+        case OpCode::Cge: return "cge";
+        case OpCode::Ret: return "ret";
+        case OpCode::Br: return "br";
+        case OpCode::BrTrue: return "brtrue";
+        case OpCode::BrFalse: return "brfalse";
+        case OpCode::Beq: return "beq";
+        case OpCode::Bne: return "bne";
+        case OpCode::Bgt: return "bgt";
+        case OpCode::Blt: return "blt";
+        case OpCode::Bge: return "bge";
+        case OpCode::Ble: return "ble";
+        case OpCode::If: return "if";
+        case OpCode::NewObj: return "newobj";
+        case OpCode::Call: return "call";
+        case OpCode::CallVirt: return "callvirt";
+        case OpCode::CastClass: return "castclass";
+        case OpCode::IsInst: return "isinst";
+        case OpCode::NewArr: return "newarr";
+        case OpCode::LdElem: return "ldelem";
+        case OpCode::StElem: return "stelem";
+        case OpCode::LdLen: return "ldlen";
+        case OpCode::Break: return "break";
+        case OpCode::Continue: return "continue";
+        case OpCode::Throw: return "throw";
+        case OpCode::While: return "while";
+        default: return "nop";
+    }
+}
+
+json SerializeInstruction(const Instruction& instr, bool includeNested);
+
+json SerializeInstructionBlock(const std::vector<Instruction>& instructions, bool includeNested) {
+    json block = json::array();
+    for (const auto& instr : instructions) {
+        block.push_back(SerializeInstruction(instr, includeNested));
+    }
+    return block;
+}
+
+json SerializeInstruction(const Instruction& instr, bool includeNested) {
+    json node;
+    node["opCode"] = OpCodeToString(instr.opCode);
+
+    json operand;
+
+    switch (instr.opCode) {
+        case OpCode::LdArg:
+        case OpCode::StArg:
+            if (!instr.identifier.empty()) operand["argumentName"] = instr.identifier;
+            break;
+        case OpCode::LdLoc:
+        case OpCode::StLoc:
+            if (!instr.identifier.empty()) operand["localName"] = instr.identifier;
+            break;
+        case OpCode::LdFld:
+        case OpCode::StFld:
+            if (instr.fieldTarget.has_value()) {
+                operand["field"] = instr.fieldTarget->name;
+            } else if (!instr.identifier.empty()) {
+                operand["field"] = instr.identifier;
+            }
+            break;
+        case OpCode::LdCon:
+            if (instr.constantIsNull) {
+                operand["value"] = nullptr;
+            } else if (!instr.constantRawValue.empty()) {
+                operand["value"] = instr.constantRawValue;
+            }
+            if (!instr.constantType.empty()) {
+                operand["type"] = instr.constantType;
+            }
+            break;
+        case OpCode::LdI4:
+        case OpCode::LdI8:
+        case OpCode::LdR4:
+        case OpCode::LdR8:
+        case OpCode::LdStr:
+            if (!instr.constantRawValue.empty()) {
+                operand["value"] = instr.constantRawValue;
+            } else if (!instr.operandString.empty()) {
+                operand["value"] = instr.operandString;
+            } else {
+                operand["value"] = instr.operandInt;
+            }
+            break;
+        case OpCode::Call:
+        case OpCode::CallVirt:
+            if (instr.callTarget.has_value()) {
+                json method;
+                method["declaringType"] = instr.callTarget->declaringType;
+                method["name"] = instr.callTarget->name;
+                method["returnType"] = instr.callTarget->returnType;
+                method["parameterTypes"] = instr.callTarget->parameterTypes;
+                operand["method"] = method;
+            }
+            break;
+        case OpCode::NewObj:
+            if (!instr.operandString.empty()) {
+                operand["type"] = instr.operandString;
+            }
+            break;
+        case OpCode::If:
+            if (includeNested && instr.ifData.has_value()) {
+                operand["thenBlock"] = SerializeInstructionBlock(instr.ifData->thenBlock, includeNested);
+                operand["elseBlock"] = SerializeInstructionBlock(instr.ifData->elseBlock, includeNested);
+            }
+            break;
+        case OpCode::While:
+            if (includeNested && instr.whileData.has_value()) {
+                json whileNode;
+                if (instr.whileData->condition.kind != ConditionKind::None) {
+                    json cond;
+                    switch (instr.whileData->condition.kind) {
+                        case ConditionKind::Stack: cond["kind"] = "stack"; break;
+                        case ConditionKind::Binary: cond["kind"] = "binary"; break;
+                        case ConditionKind::Expression: cond["kind"] = "expression"; break;
+                        default: cond["kind"] = "none"; break;
+                    }
+                    if (!instr.whileData->condition.expressionInstructions.empty()) {
+                        cond["expression"] = SerializeInstructionBlock(instr.whileData->condition.expressionInstructions, includeNested);
+                    }
+                    whileNode["condition"] = cond;
+                }
+                whileNode["body"] = SerializeInstructionBlock(instr.whileData->body, includeNested);
+                operand = std::move(whileNode);
+            }
+            break;
+        case OpCode::Br:
+        case OpCode::BrTrue:
+        case OpCode::BrFalse:
+        case OpCode::Beq:
+        case OpCode::Bne:
+        case OpCode::Bgt:
+        case OpCode::Blt:
+        case OpCode::Bge:
+        case OpCode::Ble:
+            if (instr.hasOperandInt) {
+                operand["target"] = instr.operandInt;
+            } else if (!instr.operandString.empty()) {
+                operand["target"] = instr.operandString;
+            }
+            break;
+        default:
+            if (!instr.operandString.empty()) {
+                operand["value"] = instr.operandString;
+            }
+            break;
+    }
+
+    if (!operand.empty()) {
+        node["operand"] = operand;
+    }
+
+    return node;
+}
+
+std::string QualifiedName(const ClassRef& cls) {
+    if (!cls) return {};
+    if (cls->GetNamespace().empty()) return cls->GetName();
+    return cls->GetNamespace() + "." + cls->GetName();
+}
+
+} // namespace
 
 // ============================================================================
 // TypeReference Implementation
@@ -265,6 +463,17 @@ MethodRef Class::LookupMethod(const std::string& name) const {
 ObjectRef Class::CreateInstance() const {
     auto obj = std::make_shared<Object>();
     obj->SetClass(std::const_pointer_cast<Class>(shared_from_this()));
+    
+    // Initialize all field value slots for this class and base classes
+    auto current = std::const_pointer_cast<Class>(shared_from_this());
+    while (current) {
+        // Initialize field values from most derived to most base
+        for (const auto& field : current->GetAllFields()) {
+            obj->InitializeFieldSlot(field->GetName());
+        }
+        current = current->GetBaseClass();
+    }
+    
     return obj;
 }
 
@@ -383,6 +592,11 @@ Value ExecutionContext::GetArgument(size_t index) const {
 }
 
 Value ExecutionContext::GetArgument(const std::string& name) const {
+    // Special case: "this" refers to the implicit object instance
+    if (name == "this") {
+        return Value(_this);
+    }
+    
     auto it = _parameterIndices.find(name);
     if (it == _parameterIndices.end()) {
         throw std::runtime_error("Argument not found: " + name);
@@ -485,7 +699,7 @@ Value VirtualMachine::InvokeMethod(ObjectRef object, const std::string& methodNa
         context->SetArguments(args);
         auto* rawContext = context.get();
         PushContext(std::move(context));
-        auto result = InstructionExecutor::ExecuteInstructions(method->GetInstructions(), object, args, rawContext, this);
+        auto result = InstructionExecutor::ExecuteInstructions(method->GetInstructions(), object, args, rawContext, this, method->GetLabelMap());
         PopContext();
         // If method is declared void, ignore residual stack value and return null
         if (method->GetReturnType().IsPrimitive() && method->GetReturnType().GetPrimitiveType() == PrimitiveType::Void) {
@@ -513,7 +727,7 @@ Value VirtualMachine::InvokeStaticMethod(ClassRef classType, const std::string& 
         context->SetArguments(args);
         auto* rawContext = context.get();
         PushContext(std::move(context));
-        auto result = InstructionExecutor::ExecuteInstructions(method->GetInstructions(), nullptr, args, rawContext, this);
+        auto result = InstructionExecutor::ExecuteInstructions(method->GetInstructions(), nullptr, args, rawContext, this, method->GetLabelMap());
         PopContext();
         // If method is declared void, ignore residual stack value and return null
         if (method->GetReturnType().IsPrimitive() && method->GetReturnType().GetPrimitiveType() == PrimitiveType::Void) {
@@ -537,6 +751,80 @@ void VirtualMachine::PopContext() {
     } else {
         _currentContext = nullptr;
     }
+}
+
+json VirtualMachine::ExportClassMetadata(const std::string& name, bool includeInstructions) const {
+    auto classRef = GetClass(name);
+    json type;
+    type["name"] = classRef->GetName();
+    type["namespace"] = classRef->GetNamespace();
+    type["kind"] = "class";
+    type["isAbstract"] = classRef->IsAbstract();
+    type["isSealed"] = classRef->IsSealed();
+
+    json fields = json::array();
+    for (const auto& field : classRef->GetAllFields()) {
+        json f;
+        f["name"] = field->GetName();
+        f["type"] = field->GetType().ToString();
+        fields.push_back(f);
+    }
+    type["fields"] = fields;
+
+    json methods = json::array();
+    for (const auto& method : classRef->GetAllMethods()) {
+        json m;
+        m["name"] = method->GetName();
+        m["returnType"] = method->GetReturnType().ToString();
+        m["isStatic"] = method->IsStatic();
+        m["isVirtual"] = method->IsVirtual();
+
+        json params = json::array();
+        for (const auto& param : method->GetParameters()) {
+            json p;
+            p["name"] = param.first;
+            p["type"] = param.second.ToString();
+            params.push_back(p);
+        }
+        m["parameters"] = params;
+
+        json locals = json::array();
+        for (const auto& local : method->GetLocals()) {
+            json l;
+            l["name"] = local.first;
+            l["type"] = local.second.ToString();
+            locals.push_back(l);
+        }
+        if (!locals.empty()) {
+            m["locals"] = locals;
+        }
+
+        if (includeInstructions && method->HasInstructions()) {
+            m["instructions"] = SerializeInstructionBlock(method->GetInstructions(), true);
+        }
+
+        methods.push_back(m);
+    }
+    type["methods"] = methods;
+
+    return type;
+}
+
+json VirtualMachine::ExportMetadata(bool includeInstructions) const {
+    json module;
+    module["types"] = json::array();
+
+    std::unordered_set<const Class*> seen;
+    for (const auto& entry : _classes) {
+        const Class* rawPtr = entry.second.get();
+        if (seen.find(rawPtr) != seen.end()) {
+            continue;
+        }
+        seen.insert(rawPtr);
+        module["types"].push_back(ExportClassMetadata(QualifiedName(entry.second), includeInstructions));
+    }
+
+    return module;
 }
 
 // ============================================================================

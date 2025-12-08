@@ -1,0 +1,9 @@
+module HelloWorld
+
+class Program {
+    method Main() -> void {
+        ldstr "Hello from ObjectIRrs!"
+        call System.Console.WriteLine(string) -> void
+        ret
+    }
+}

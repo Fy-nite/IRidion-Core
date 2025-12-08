@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Runtimes", "Runtimes", "{BB4FD3E1-BF37-801A-7591-DC4DC6E3BB2D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectIR.Core", "Runtimes\ObjectIR.Core\ObjectIR.Core.csproj", "{6CBD2B31-E852-F5D3-2358-5A67BA927DFC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharpIR", "Runtimes\SharpIR\SharpIR.csproj", "{85B5198C-67E1-B393-D41D-ABA6D2417A6C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6CBD2B31-E852-F5D3-2358-5A67BA927DFC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6CBD2B31-E852-F5D3-2358-5A67BA927DFC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6CBD2B31-E852-F5D3-2358-5A67BA927DFC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6CBD2B31-E852-F5D3-2358-5A67BA927DFC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{85B5198C-67E1-B393-D41D-ABA6D2417A6C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{85B5198C-67E1-B393-D41D-ABA6D2417A6C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{85B5198C-67E1-B393-D41D-ABA6D2417A6C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{85B5198C-67E1-B393-D41D-ABA6D2417A6C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6CBD2B31-E852-F5D3-2358-5A67BA927DFC} = {BB4FD3E1-BF37-801A-7591-DC4DC6E3BB2D}
+		{85B5198C-67E1-B393-D41D-ABA6D2417A6C} = {BB4FD3E1-BF37-801A-7591-DC4DC6E3BB2D}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EC9F4622-4E90-458D-9484-9DB164D93AC8}
+	EndGlobalSection
+EndGlobal

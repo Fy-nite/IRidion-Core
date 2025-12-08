@@ -134,6 +134,9 @@ target_link_libraries(fob_test PRIVATE objectir_runtime)
 add_executable(format_test examples/format_test.cpp)
 target_link_libraries(format_test PRIVATE objectir_runtime)
 
+add_executable(full_feature_suite examples/full_feature_suite.cpp)
+target_link_libraries(full_feature_suite PRIVATE objectir_runtime)
+
 
 # Install configuration
 install(TARGETS objectir_runtime

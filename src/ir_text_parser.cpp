@@ -335,6 +335,13 @@ json IRTextParser::Parser::ParseClass()
     // Parse members
     while (current < tokens.size() && !Check(Token::Type::RBrace))
     {
+        // Check for access modifiers and skip them - use while loop in case there are multiple modifiers
+        while (Peek().value == "private" || Peek().value == "public" || Peek().value == "protected" ||
+               Peek().value == "static" || Peek().value == "virtual" || Peek().value == "abstract")
+        {
+            Advance(); // Skip modifier
+        }
+
         if (Peek().value == "field")
         {
             classJson["fields"].push_back(ParseField());
@@ -347,7 +354,7 @@ json IRTextParser::Parser::ParseClass()
         {
             classJson["methods"].push_back(ParseMethod());
         }
-        else
+        else if (!Check(Token::Type::RBrace))
         {
             Advance();
         }
@@ -499,10 +506,12 @@ json IRTextParser::Parser::ParseMethod()
         method["isStatic"] = false;
     }
 
-    // Parse method body - collect all instructions
+    // Parse method body - collect all instructions and local declarations
     if (Match(Token::Type::LBrace))
     {
         json bodyInstructions = json::array();
+        json localVariables = json::array();
+        json labelMap = json::object(); // Map label names to instruction indices
         int braceCount = 1;
         
         while (braceCount > 0 && current < tokens.size())
@@ -520,6 +529,35 @@ json IRTextParser::Parser::ParseMethod()
                     Advance();
                 }
             }
+            else if (Peek().value == "local")
+            {
+                // Parse local variable declaration: local varName: type
+                Advance(); // consume 'local'
+                if (Check(Token::Type::Identifier))
+                {
+                    std::string varName = Advance().value;
+                    Match(Token::Type::Colon);
+                    std::string varType = Advance().value;
+                    
+                    json localVar;
+                    localVar["name"] = varName;
+                    localVar["type"] = varType;
+                    localVariables.push_back(localVar);
+                    
+                    std::cerr << "    Parsed local: " << varName << " : " << varType << std::endl;
+                }
+            }
+            else if (Check(Token::Type::Identifier) && current + 1 < tokens.size() && tokens[current + 1].type == Token::Type::Colon)
+            {
+                // This is a label: labelName:
+                std::string labelName = Advance().value;
+                Advance(); // consume ':'
+                
+                // Map this label to the current instruction index
+                size_t nextInstructionIndex = bodyInstructions.size();
+                labelMap[labelName] = nextInstructionIndex;
+                std::cerr << "    Parsed label: " << labelName << " -> instruction " << nextInstructionIndex << std::endl;
+            }
             else if (Check(Token::Type::Instruction))
             {
                 // Parse instruction
@@ -533,7 +571,8 @@ json IRTextParser::Parser::ParseMethod()
                        !Check(Token::Type::Instruction) &&
                        !Check(Token::Type::LBrace) &&
                        !Check(Token::Type::RBrace) &&
-                       !Check(Token::Type::Newline))
+                       !Check(Token::Type::Newline) &&
+                       !(Check(Token::Type::Identifier) && current + 1 < tokens.size() && tokens[current + 1].type == Token::Type::Colon))
                 {
                     args.push_back(Peek().value);
                     Advance();
@@ -602,6 +641,19 @@ json IRTextParser::Parser::ParseMethod()
                     operand["field"] = args[0];
                     hasOperand = true;
                 }
+                else if ((instructionName == "br" || instructionName == "br.s" || instructionName == "brtrue" || 
+                          instructionName == "brtrue.s" || instructionName == "brfalse" || instructionName == "brfalse.s" ||
+                          instructionName == "beq" || instructionName == "beq.s" || instructionName == "bne" || 
+                          instructionName == "bne.s" || instructionName == "bgt" || instructionName == "bgt.s" || 
+                          instructionName == "blt" || instructionName == "blt.s" || instructionName == "bge" || 
+                          instructionName == "bge.s" || instructionName == "ble" || instructionName == "ble.s") && !args.empty())
+                {
+                    // This is a branch instruction with a label or numeric target
+                    // Store as a string for now; will be resolved using labelMap during loading
+                    operand["target"] = args[0];
+                    hasOperand = true;
+                    std::cerr << "    branch target: " << args[0] << std::endl;
+                }
                 else if (!args.empty())
                 {
                     // Generic operand for instructions with arguments
@@ -628,7 +680,10 @@ json IRTextParser::Parser::ParseMethod()
             }
         }
 
-        method["body"] = bodyInstructions;
+        method["instructions"] = bodyInstructions;
+        method["body"] = bodyInstructions; // legacy compatibility
+        method["localVariables"] = localVariables; // Add locals to method
+        method["labelMap"] = labelMap; // Add label map for branch resolution
         Match(Token::Type::RBrace);
     }
 
@@ -833,10 +888,12 @@ bool IRTextParser::IsKeyword(const std::string& word)
 bool IRTextParser::IsInstruction(const std::string& word)
 {
     static const std::vector<std::string> instructions = {
-        "ldarg", "ldloc", "ldfld", "stloc", "stfld", "ldc", "ldc.i4", "ldc.r8",
+        "ldarg", "ldloc", "ldfld", "stloc", "stfld", "ldc", "ldc.i4", "ldc.i8", "ldc.r4", "ldc.r8",
         "ldstr", "ldnull", "add", "sub", "mul", "div", "rem", "neg",
         "ceq", "cgt", "clt", "call", "callvirt", "newobj", "dup", "pop",
-        "ret", "br", "beq", "bne", "brfalse", "brtrue", "bgt", "blt", "bge", "ble",
+        "ret", "br", "br.s", "beq", "beq.s", "bne", "bne.s", "bne.un", "brfalse", "brfalse.s", 
+        "brtrue", "brtrue.s", "bgt", "bgt.s", "bgt.un", "blt", "blt.s", "blt.un", "bge", "bge.s", "bge.un",
+        "ble", "ble.s", "ble.un",
         "if", "while", "for", "switch", "case", "default", "break", "continue"
     };
 

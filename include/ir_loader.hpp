@@ -2,6 +2,7 @@
 
 #include "objectir_runtime.hpp"
 #include "fob_loader.hpp"
+#include "ir_text_parser.hpp"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <sstream>
@@ -25,13 +26,16 @@ namespace ObjectIR
         /// Load a module from a JSON string
         static std::shared_ptr<VirtualMachine> LoadFromString(const std::string &jsonStr);
 
+        /// Load a module from textual ObjectIR source
+        static std::shared_ptr<VirtualMachine> LoadFromText(const std::string &irText);
+
         /// Load a module from FOB binary data
         static std::shared_ptr<VirtualMachine> LoadFromFOBData(const std::vector<uint8_t> &data);
 
         /// Detect file format by reading the first few bytes
         static bool IsFOBFormat(const std::string &filePath);
 
-    private:
+    // beyond here should have been public already.
         IRLoader() = default;
 
         /// Parse JSON and create VirtualMachine with all types and methods
