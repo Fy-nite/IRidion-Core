@@ -602,6 +602,19 @@ Value ExecutionContext::PeekStack() const {
     return _stack.back();
 }
 
+std::vector<Value> ExecutionContext::GetStackSnapshot(size_t maxDepth) const {
+    std::vector<Value> out;
+    if (_stack.empty() || maxDepth == 0) return out;
+    const size_t n = _stack.size();
+    const size_t take = std::min(maxDepth, n);
+    out.reserve(take);
+    // Return top-of-stack first (like a typical stack trace view)
+    for (size_t i = 0; i < take; ++i) {
+        out.push_back(_stack[n - 1 - i]);
+    }
+    return out;
+}
+
 void ExecutionContext::SetLocal(size_t index, const Value& value) {
     if (index >= _locals.size()) {
         _locals.resize(index + 1);
@@ -992,8 +1005,8 @@ ObjectIR::MethodRef ResolveOverloadOrThrow(ObjectIR::ClassRef cls,
         throw std::runtime_error("Method not found: " + target.name);
     }
 
-    // If no parameter types provided, only allow resolution when unambiguous.
-    if (target.parameterTypes.empty()) {
+    // If no signature was provided, only allow resolution when unambiguous.
+    if (!target.hasParameterTypes) {
         std::vector<ObjectIR::MethodRef> viable;
         for (const auto& m : methods) {
             if (!m) continue;
@@ -1155,6 +1168,21 @@ Value VirtualMachine::InvokeStaticMethod(ClassRef classType, const std::string& 
 void VirtualMachine::PushContext(std::unique_ptr<ExecutionContext> context) {
     _contextStack.push_back(std::move(_currentContext));
     _currentContext = std::move(context);
+}
+
+std::vector<const ExecutionContext*> VirtualMachine::GetCallStackSnapshot() const {
+    std::vector<const ExecutionContext*> frames;
+    // Most-recent frame first (current context)
+    if (_currentContext) {
+        frames.push_back(_currentContext.get());
+    }
+    // Then previous contexts (top of stack is most-recent caller)
+    for (auto it = _contextStack.rbegin(); it != _contextStack.rend(); ++it) {
+        if (it->get()) {
+            frames.push_back(it->get());
+        }
+    }
+    return frames;
 }
 
 void VirtualMachine::PopContext() {

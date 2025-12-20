@@ -17,6 +17,7 @@ cmake_install.cmake
 Makefile
 CMakeCache.txt
 .ninja_*
+*_autogen/
 bin/
 obj/
 out/

@@ -489,6 +489,19 @@ namespace ObjectIR {
 
         [[nodiscard]] MethodRef GetMethod() const { return _method; }
 
+        // Instruction location tracking (for diagnostics)
+        void SetLastInstruction(size_t ip, OpCode opCode) {
+            _lastIp = ip;
+            _lastOpCode = opCode;
+            _hasLastInstruction = true;
+        }
+        [[nodiscard]] bool HasLastInstruction() const { return _hasLastInstruction; }
+        [[nodiscard]] size_t GetLastIp() const { return _lastIp; }
+        [[nodiscard]] OpCode GetLastOpCode() const { return _lastOpCode; }
+
+        // Diagnostics helpers
+        [[nodiscard]] std::vector<Value> GetStackSnapshot(size_t maxDepth = 16) const;
+
     private:
         MethodRef _method;
         std::vector<Value> _stack;
@@ -497,6 +510,10 @@ namespace ObjectIR {
         ObjectRef _this;
         std::unordered_map<std::string, size_t> _localIndices;
         std::unordered_map<std::string, size_t> _parameterIndices;
+
+        bool _hasLastInstruction = false;
+        size_t _lastIp = 0;
+        OpCode _lastOpCode = OpCode::Nop;
     };
 
     // ============================================================================
@@ -561,6 +578,7 @@ namespace ObjectIR {
 
         // Global state
         [[nodiscard]] ExecutionContext *GetCurrentContext() const { return _currentContext.get(); }
+        [[nodiscard]] std::vector<const ExecutionContext*> GetCallStackSnapshot() const;
         void PushContext(std::unique_ptr<ExecutionContext> context);
         void PopContext();
 

@@ -10,6 +10,32 @@ namespace ObjectIR {
 
 namespace {
 
+TypeReference ParseTypeReference(VirtualMachine* vm, const std::string& typeStr) {
+    const auto normalized = TypeNames::NormalizeTypeName(typeStr);
+
+    if (normalized == "int32") return TypeReference::Int32();
+    if (normalized == "int64") return TypeReference::Int64();
+    if (normalized == "float32") return TypeReference::Float32();
+    if (normalized == "float64") return TypeReference::Float64();
+    if (normalized == "bool") return TypeReference::Bool();
+    if (normalized == "string") return TypeReference::String();
+    if (normalized == "void") return TypeReference::Void();
+    if (normalized == "uint8") return TypeReference::UInt8();
+    if (normalized == "object") return TypeReference::Object();
+
+    if (vm) {
+        try {
+            if (vm->HasClass(normalized)) {
+                return TypeReference::Object(vm->GetClass(normalized));
+            }
+        } catch (...) {
+            // Ignore and fall back.
+        }
+    }
+
+    return TypeReference::Object();
+}
+
 struct BreakSignal : public std::exception {
     const char* what() const noexcept override { return "break"; }
 };
@@ -331,6 +357,7 @@ Instruction InstructionExecutor::ParseJsonInstruction(const json& instrJson) {
                 target.name = methodJson.value("name", "");
                 target.returnType = TypeNames::NormalizeTypeName(methodJson.value("returnType", "void"));
                 if (methodJson.contains("parameterTypes") && methodJson["parameterTypes"].is_array()) {
+                    target.hasParameterTypes = true;
                     for (const auto& param : methodJson["parameterTypes"]) {
                         target.parameterTypes.push_back(TypeNames::NormalizeTypeName(param.get<std::string>()));
                     }
@@ -342,6 +369,21 @@ Instruction InstructionExecutor::ParseJsonInstruction(const json& instrJson) {
         case OpCode::NewObj:
             if (operand.contains("type")) {
                 instr.operandString = operand.value("type", "");
+            }
+            break;
+
+        case OpCode::NewArr:
+        case OpCode::CastClass:
+        case OpCode::IsInst:
+            if (operand.is_object()) {
+                if (operand.contains("type")) {
+                    instr.operandString = operand.value("type", "");
+                } else if (operand.contains("arguments") && operand["arguments"].is_array() && !operand["arguments"].empty()) {
+                    // Generic fallback used by the IR text parser for unknown instructions.
+                    instr.operandString = operand["arguments"][0].get<std::string>();
+                }
+            } else if (operand.is_string()) {
+                instr.operandString = operand.get<std::string>();
             }
             break;
 
@@ -633,6 +675,115 @@ void InstructionExecutor::Execute(
             break;
         }
 
+        case OpCode::NewArr: {
+            const std::string typeName = !instr.operandString.empty() ? instr.operandString : instr.identifier;
+            if (typeName.empty()) {
+                throw std::runtime_error("NewArr instruction missing element type operand");
+            }
+            const auto lengthValue = context->PopStack();
+            const int32_t length = static_cast<int32_t>(ValueToInt64(lengthValue));
+            if (length < 0) {
+                throw std::runtime_error("NewArr length must be non-negative");
+            }
+            const auto elementType = ParseTypeReference(vm, typeName);
+            ObjectRef arrayObject = vm->CreateArray(elementType, length);
+            context->PushStack(Value(arrayObject));
+            break;
+        }
+
+        case OpCode::LdLen: {
+            const auto arrayValue = context->PopStack();
+            if (!arrayValue.IsObject()) {
+                throw std::runtime_error("LdLen requires an array object on the stack");
+            }
+            auto arrayObj = std::dynamic_pointer_cast<Array>(arrayValue.AsObject());
+            if (!arrayObj) {
+                throw std::runtime_error("LdLen requires an Array instance");
+            }
+            context->PushStack(Value(arrayObj->GetArrayLength()));
+            break;
+        }
+
+        case OpCode::LdElem: {
+            const auto indexValue = context->PopStack();
+            const auto arrayValue = context->PopStack();
+            if (!arrayValue.IsObject()) {
+                throw std::runtime_error("LdElem requires an array object on the stack");
+            }
+            auto arrayObj = std::dynamic_pointer_cast<Array>(arrayValue.AsObject());
+            if (!arrayObj) {
+                throw std::runtime_error("LdElem requires an Array instance");
+            }
+            const int32_t index = static_cast<int32_t>(ValueToInt64(indexValue));
+            context->PushStack(arrayObj->GetElement(index));
+            break;
+        }
+
+        case OpCode::StElem: {
+            const auto valueToStore = context->PopStack();
+            const auto indexValue = context->PopStack();
+            const auto arrayValue = context->PopStack();
+            if (!arrayValue.IsObject()) {
+                throw std::runtime_error("StElem requires an array object on the stack");
+            }
+            auto arrayObj = std::dynamic_pointer_cast<Array>(arrayValue.AsObject());
+            if (!arrayObj) {
+                throw std::runtime_error("StElem requires an Array instance");
+            }
+            const int32_t index = static_cast<int32_t>(ValueToInt64(indexValue));
+            arrayObj->SetElement(index, valueToStore);
+            break;
+        }
+
+        case OpCode::CastClass:
+        case OpCode::IsInst: {
+            const std::string typeName = !instr.operandString.empty() ? instr.operandString : instr.identifier;
+            if (typeName.empty()) {
+                throw std::runtime_error("CastClass/IsInst instruction missing type operand");
+            }
+            const auto normalized = TypeNames::NormalizeTypeName(typeName);
+            const auto value = context->PopStack();
+
+            auto matchesPrimitive = [&]() -> bool {
+                if (normalized == "object") return true;
+                if (normalized == "string") return value.IsString();
+                if (normalized == "bool") return value.IsBool();
+                if (normalized == "int32") return value.IsInt32();
+                if (normalized == "int64") return value.IsInt64();
+                if (normalized == "float32") return value.IsFloat32();
+                if (normalized == "float64") return value.IsFloat64();
+                if (normalized == "uint8") return value.IsInt32();
+                return false;
+            };
+
+            auto matchesClass = [&]() -> bool {
+                if (normalized == "object") return true;
+                if (!value.IsObject()) return false;
+                if (!vm) return false;
+                try {
+                    auto cls = vm->GetClass(normalized);
+                    auto obj = value.AsObject();
+                    return obj && obj->IsInstanceOf(cls);
+                } catch (...) {
+                    return false;
+                }
+            };
+
+            const bool ok = value.IsNull() || matchesPrimitive() || matchesClass();
+
+            if (instr.opCode == OpCode::IsInst) {
+                context->PushStack(ok ? value : Value());
+                break;
+            }
+
+            // CastClass
+            if (!ok) {
+                throw std::runtime_error("Invalid cast to '" + typeName + "'");
+            }
+            context->PushStack(value);
+            break;
+        }
+
         case OpCode::Call:
         case OpCode::CallVirt: {
             if (!instr.callTarget.has_value()) {
@@ -819,63 +970,67 @@ Value InstructionExecutor::ExecuteInstructions(
     size_t ip = 0;
     while (ip < instructions.size()) {
         const auto& instr = instructions[ip];
+        if (context) {
+            context->SetLastInstruction(ip, instr.opCode);
+        }
         // std::cerr << "[" << (context->GetMethod() ? context->GetMethod()->GetName() : std::string("<static>"))
         //           << "] Executing instruction " << ip << ": op=" << static_cast<int>(instr.opCode)
         //           << ", id='" << instr.identifier << "', operand='" << instr.operandString << "'" << std::endl;
 
-        if (instr.opCode == OpCode::Ret) {
-            try {
-                return context->PopStack();
-            } catch (...) {
-                return Value();
+        try {
+            if (instr.opCode == OpCode::Ret) {
+                try {
+                    return context->PopStack();
+                } catch (...) {
+                    return Value();
+                }
             }
-        }
 
-        switch (instr.opCode) {
-            case OpCode::Br: {
-                ip = resolveTarget(instr);
-                continue;
-            }
-            case OpCode::BrTrue: {
-                bool cond = ValueToBool(context->PopStack());
-                if (cond) {
+            switch (instr.opCode) {
+                case OpCode::Br: {
                     ip = resolveTarget(instr);
                     continue;
                 }
-                ++ip;
-                continue;
-            }
-            case OpCode::BrFalse: {
-                bool cond = ValueToBool(context->PopStack());
-                if (!cond) {
-                    ip = resolveTarget(instr);
+                case OpCode::BrTrue: {
+                    bool cond = ValueToBool(context->PopStack());
+                    if (cond) {
+                        ip = resolveTarget(instr);
+                        continue;
+                    }
+                    ++ip;
                     continue;
                 }
-                ++ip;
-                continue;
-            }
-            case OpCode::Beq:
-            case OpCode::Bne:
-            case OpCode::Bgt:
-            case OpCode::Blt:
-            case OpCode::Bge:
-            case OpCode::Ble: {
-                auto right = context->PopStack();
-                auto left = context->PopStack();
-                bool cond = compareBranch(instr.opCode, left, right);
-                if (cond) {
-                    ip = resolveTarget(instr);
+                case OpCode::BrFalse: {
+                    bool cond = ValueToBool(context->PopStack());
+                    if (!cond) {
+                        ip = resolveTarget(instr);
+                        continue;
+                    }
+                    ++ip;
                     continue;
                 }
-                ++ip;
-                continue;
+                case OpCode::Beq:
+                case OpCode::Bne:
+                case OpCode::Bgt:
+                case OpCode::Blt:
+                case OpCode::Bge:
+                case OpCode::Ble: {
+                    auto right = context->PopStack();
+                    auto left = context->PopStack();
+                    bool cond = compareBranch(instr.opCode, left, right);
+                    if (cond) {
+                        ip = resolveTarget(instr);
+                        continue;
+                    }
+                    ++ip;
+                    continue;
+                }
+                default:
+                    break;
             }
-            default:
-                break;
-        }
 
-        // Special handling for while loops with binary conditions
-        if (instr.opCode == OpCode::While && instr.whileData.has_value()) {
+            // Special handling for while loops with binary conditions
+            if (instr.opCode == OpCode::While && instr.whileData.has_value()) {
             const auto& whileData = instr.whileData.value();
             if (whileData.condition.kind == ConditionKind::Binary) {
                 std::vector<Instruction> setupInstrs;
@@ -947,8 +1102,16 @@ Value InstructionExecutor::ExecuteInstructions(
             }
         }
 
-        Execute(instr, context, vm);
-        ++ip;
+            Execute(instr, context, vm);
+            ++ip;
+        } catch (const std::exception& ex) {
+            const std::string methodName = (context && context->GetMethod()) ? context->GetMethod()->GetName() : std::string("<unknown>");
+            throw std::runtime_error(
+                "VM error in method '" + methodName + "' at ip=" + std::to_string(ip) +
+                " op=" + std::to_string(static_cast<int>(instr.opCode)) +
+                " id='" + instr.identifier + "' operand='" + instr.operandString + "': " + ex.what()
+            );
+        }
     }
 
     try {

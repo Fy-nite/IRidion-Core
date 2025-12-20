@@ -76,7 +76,8 @@ IRTextParser::Token IRTextParser::Lexer::MakeToken(Token::Type type, const std::
 std::string IRTextParser::Lexer::ReadIdentifier()
 {
     std::string result;
-    while (!IsAtEnd() && (std::isalnum(Current()) || Current() == '_' || Current() == '.'))
+    // Allow backtick for generic arity names like `List`1`.
+    while (!IsAtEnd() && (std::isalnum(Current()) || Current() == '_' || Current() == '.' || Current() == '`'))
     {
         result += Current();
         Advance();
@@ -90,17 +91,50 @@ std::string IRTextParser::Lexer::ReadString()
     Advance(); // Skip opening quote
     while (!IsAtEnd() && Current() != '"')
     {
-        if (Current() == '\\' && Peek() == '"')
+        if (Current() == '\\')
         {
-            result += '"';
-            Advance();
-            Advance();
-        }
-        else
-        {
+            // Basic escape support to make it possible to express newlines/tabs in IR strings.
+            // Supported: \" \\ \n \r \t
+            char next = Peek();
+            if (next == '"') {
+                result += '"';
+                Advance();
+                Advance();
+                continue;
+            }
+            if (next == '\\') {
+                result += '\\';
+                Advance();
+                Advance();
+                continue;
+            }
+            if (next == 'n') {
+                result += '\n';
+                Advance();
+                Advance();
+                continue;
+            }
+            if (next == 'r') {
+                result += '\r';
+                Advance();
+                Advance();
+                continue;
+            }
+            if (next == 't') {
+                result += '\t';
+                Advance();
+                Advance();
+                continue;
+            }
+
+            // Unknown escape: keep the backslash literal.
             result += Current();
             Advance();
+            continue;
         }
+
+        result += Current();
+        Advance();
     }
     if (!IsAtEnd())
     {
@@ -658,6 +692,18 @@ json IRTextParser::Parser::ParseMethod()
                     hasOperand = true;
                     // std::cerr << "    call operand: method=" << methodObj.dump() << std::endl;
                 }
+                else if ((instructionName == "newobj" || instructionName == "newarr") && !args.empty())
+                {
+                    // newobj <type>
+                    // newarr <type>
+                    operand["type"] = args[0];
+                    hasOperand = true;
+                }
+                else if ((instructionName == "castclass" || instructionName == "isinst") && !args.empty())
+                {
+                    operand["type"] = args[0];
+                    hasOperand = true;
+                }
                 else if ((instructionName == "ldfld" || instructionName == "stfld") && !args.empty())
                 {
                     operand["field"] = args[0];
@@ -733,14 +779,22 @@ json IRTextParser::Parser::parseMethodReference(const std::vector<std::string>& 
     if (args.empty()) return methodObj;
     
     // Parse declaring type and method name from first arg like "System.Console.WriteLine"
+    // Special-case constructors, which appear as "Type..ctor" in text IR (double dot).
     std::string fullMethodName = args[0];
-    size_t lastDot = fullMethodName.find_last_of('.');
-    if (lastDot != std::string::npos) {
-        methodObj["declaringType"] = fullMethodName.substr(0, lastDot);
-        methodObj["name"] = fullMethodName.substr(lastDot + 1);
+    size_t ctorSep = fullMethodName.rfind("..");
+    if (ctorSep != std::string::npos && ctorSep + 2 < fullMethodName.size()) {
+        // "Type..ctor" => declaringType="Type", name=".ctor"
+        methodObj["declaringType"] = fullMethodName.substr(0, ctorSep);
+        methodObj["name"] = std::string(".") + fullMethodName.substr(ctorSep + 2);
     } else {
-        methodObj["declaringType"] = "object"; // fallback
-        methodObj["name"] = fullMethodName;
+        size_t lastDot = fullMethodName.find_last_of('.');
+        if (lastDot != std::string::npos) {
+            methodObj["declaringType"] = fullMethodName.substr(0, lastDot);
+            methodObj["name"] = fullMethodName.substr(lastDot + 1);
+        } else {
+            methodObj["declaringType"] = "object"; // fallback
+            methodObj["name"] = fullMethodName;
+        }
     }
     
     // Parse parameter types
@@ -909,12 +963,13 @@ bool IRTextParser::IsKeyword(const std::string& word)
 bool IRTextParser::IsInstruction(const std::string& word)
 {
     static const std::vector<std::string> instructions = {
-        "ldarg", "ldloc", "ldfld", "stloc", "stfld", "ldc", "ldc.i4", "ldc.i8", "ldc.r4", "ldc.r8",
+        "ldarg", "starg", "ldloc", "ldfld", "stloc", "stfld", "ldc", "ldc.i4", "ldc.i8", "ldc.r4", "ldc.r8",
         "ldstr", "ldnull", "add", "sub", "mul", "div", "rem", "neg",
-        "ceq", "cgt", "clt", "call", "callvirt", "newobj", "dup", "pop",
+        "ceq", "cne", "cgt", "cge", "clt", "cle", "call", "callvirt", "newobj", "castclass", "isinst", "dup", "pop",
         "ret", "br", "br.s", "beq", "beq.s", "bne", "bne.s", "bne.un", "brfalse", "brfalse.s", 
         "brtrue", "brtrue.s", "bgt", "bgt.s", "bgt.un", "blt", "blt.s", "blt.un", "bge", "bge.s", "bge.un",
         "ble", "ble.s", "ble.un",
+        "newarr", "ldelem", "stelem", "ldlen",
         "if", "while", "for", "switch", "case", "default", "break", "continue"
     };
 

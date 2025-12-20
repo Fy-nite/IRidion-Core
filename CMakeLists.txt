@@ -42,6 +42,7 @@ endif()
 
 add_library(objectir_runtime ${OBJECTIR_RUNTIME_LINKAGE}
     src/objectir_runtime.cpp
+    src/DiagnosticsProvidr.cpp
     src/ir_loader.cpp
     src/ir_text_parser.cpp
     src/fob_loader.cpp

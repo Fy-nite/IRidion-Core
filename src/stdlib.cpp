@@ -2116,6 +2116,15 @@ void RegisterStandardLibrary(std::shared_ptr<VirtualMachine> vm) {
     StringLength->SetNativeImpl(String_Length);
     stringClass->AddMethod(StringLength);
 
+    auto substring = std::make_shared<Method>("Substring", TypeReference::String(), true, false);
+    substring->AddParameter("value", TypeReference::String());
+    substring->AddParameter("start", TypeReference::Int32());
+    substring->AddParameter("length", TypeReference::Int32());
+    substring->SetNativeImpl(String_Substring);
+    stringClass->AddMethod(substring);
+    // Keep lowercase alias in sync for compatibility.
+    stringClassLower->AddMethod(substring);
+
     // Create System.Convert class
     auto convertClass = std::make_shared<Class>("System.Convert");
     convertClass->SetNamespace("System");

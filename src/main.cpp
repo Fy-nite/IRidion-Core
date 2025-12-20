@@ -1,6 +1,7 @@
 #include "objectir_runtime.hpp"
 #include "fob_loader.hpp"
 #include "ir_loader.hpp"
+#include "DiagnosticsProvider.hpp"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -41,8 +42,9 @@ int main(int argc, char* argv[]) {
     std::string className = entryPoint.substr(0, dotPos);
     std::string methodName = entryPoint.substr(dotPos + 1);
 
+    std::shared_ptr<VirtualMachine> vm;
+
     try {
-        std::shared_ptr<VirtualMachine> vm;
 
         if (IsFOBFile(modulePath)) {
             // Load FOB file
@@ -163,7 +165,8 @@ int main(int argc, char* argv[]) {
         return 0;
 
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        Diagnostics diag;
+        diag.Error(vm.get(), "Unhandled runtime exception", e.what());
         return 1;
     }
 }

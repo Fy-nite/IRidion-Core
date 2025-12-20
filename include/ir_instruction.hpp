@@ -94,6 +94,9 @@ enum class ConditionKind {
 struct CallTarget {
     std::string declaringType;
     std::string name;
+    // True when the IR explicitly provided a parameterTypes list (even if empty).
+    // This lets the runtime distinguish `Foo()` from an unqualified `Foo` reference.
+    bool hasParameterTypes = false;
     std::vector<std::string> parameterTypes;
     std::string returnType;
 };
