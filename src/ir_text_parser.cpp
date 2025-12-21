@@ -4,6 +4,13 @@
 #include <iostream>
 #include <cctype>
 
+// Debug-only parser tracing. Enabled in Debug builds (or when NDEBUG is not defined).
+#if defined(_DEBUG) || !defined(NDEBUG)
+#define OIR_PARSER_DEBUG_LOG(...) do { std::cerr << __VA_ARGS__ << std::endl; } while (0)
+#else
+#define OIR_PARSER_DEBUG_LOG(...) do { } while (0)
+#endif
+
 namespace ObjectIR
 {
 
@@ -599,8 +606,8 @@ json IRTextParser::Parser::ParseMethod()
                     localVar["name"] = varName;
                     localVar["type"] = varType;
                     localVariables.push_back(localVar);
-                    
-                    std::cerr << "    Parsed local: " << varName << " : " << varType << std::endl;
+
+                    OIR_PARSER_DEBUG_LOG("    Parsed local: " << varName << " : " << varType);
                 }
             }
             else if (Check(Token::Type::Identifier) && current + 1 < tokens.size() && tokens[current + 1].type == Token::Type::Colon)
@@ -720,7 +727,7 @@ json IRTextParser::Parser::ParseMethod()
                     // Store as a string for now; will be resolved using labelMap during loading
                     operand["target"] = args[0];
                     hasOperand = true;
-                    std::cerr << "    branch target: " << args[0] << std::endl;
+                    OIR_PARSER_DEBUG_LOG("    branch target: " << args[0]);
                 }
                 else if (!args.empty())
                 {
