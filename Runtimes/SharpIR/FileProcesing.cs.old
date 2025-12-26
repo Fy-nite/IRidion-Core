@@ -822,15 +822,6 @@ namespace SharpIR
                         {
                                 _target.Add(new LoadStaticFieldInstruction(fieldRef));
                         }
-                        else if (symbol is IPropertySymbol propSym)
-                        {
-                            // property assignment to property on this
-                            // call set_PropertyName(this, value)
-                            // value already on the stack
-                            var setterRef = new MethodReference(CSharpParser.MapType(propSym.ContainingType), $"set_{propSym.Name}", TypeReference.Void, new List<TypeReference> { CSharpParser.MapType(propSym.Type) });
-                            _target.Add(new LoadArgInstruction(_argIndices["this"]));
-                            _target.Add(new CallVirtualInstruction(setterRef));
-                        }
                         else
                         {
                             // Need 'this' on stack
@@ -886,36 +877,70 @@ namespace SharpIR
                                       kind == Microsoft.CodeAnalysis.CSharp.SyntaxKind.MultiplyAssignmentExpression ||
                                       kind == Microsoft.CodeAnalysis.CSharp.SyntaxKind.DivideAssignmentExpression ||
                                       kind == Microsoft.CodeAnalysis.CSharp.SyntaxKind.ModuloAssignmentExpression;
-                    // handle compound assignments e.g., +=
+
+                    // Identify the target (LHS)
+                    ISymbol? targetSymbol = null;
+                    bool isInstanceMember = false;
+                    
+                    if (assignment.Left is IdentifierNameSyntax id)
+                    {
+                        targetSymbol = _semanticModel.GetSymbolInfo(id).Symbol;
+                        if (targetSymbol != null && !targetSymbol.IsStatic && (targetSymbol is IFieldSymbol || targetSymbol is IPropertySymbol))
+                        {
+                            isInstanceMember = true;
+                        }
+                    }
+
                     if (isCompound)
                     {
-                        // Compound assignment: LHS is either local/param or member access
-                        if (assignment.Left is IdentifierNameSyntax id)
+                        // Compound assignment
+                        if (assignment.Left is IdentifierNameSyntax)
                         {
-                            CompileIdentifier(id);
+                            if (isInstanceMember)
+                            {
+                                // Load 'this' for the final store
+                                _target.Add(new LoadArgInstruction(_argIndices["this"]));
+                                // Duplicate 'this' for the load
+                                _target.Add(new DupInstruction());
+                                // Load current value (consumes one 'this')
+                                if (targetSymbol is IFieldSymbol field)
+                                {
+                                    var fieldRef = new FieldReference(CSharpParser.MapType(field.ContainingType), field.Name, CSharpParser.MapType(field.Type));
+                                    _target.Add(new LoadFieldInstruction(fieldRef));
+                                }
+                                else if (targetSymbol is IPropertySymbol prop)
+                                {
+                                    var getter = new MethodReference(CSharpParser.MapType(prop.ContainingType), $"get_{prop.Name}", CSharpParser.MapType(prop.Type), new List<TypeReference>());
+                                    _target.Add(new CallVirtualInstruction(getter));
+                                }
+                            }
+                            else
+                            {
+                                // Local or static
+                                CompileIdentifier((IdentifierNameSyntax)assignment.Left);
+                            }
                         }
                         else if (assignment.Left is MemberAccessExpressionSyntax mac)
                         {
-                            // For compound assignment on member access: push instance, duplicate it, then load current value
                             CompileExpression(mac.Expression);
                             _target.Add(new DupInstruction());
                             var macSym = _semanticModel.GetSymbolInfo(mac).Symbol;
-                            var macFieldSym = macSym as IFieldSymbol;
-                            var macPropSym = macSym as IPropertySymbol;
-                            if (macPropSym != null)
+                            if (macSym is IPropertySymbol macPropSym)
                             {
                                 var getter = new MethodReference(CSharpParser.MapType(macPropSym.ContainingType), $"get_{macPropSym.Name}", CSharpParser.MapType(macPropSym.Type), new List<TypeReference>());
                                 _target.Add(new CallVirtualInstruction(getter));
                             }
-                            else if (macFieldSym != null)
+                            else if (macSym is IFieldSymbol macFieldSym)
                             {
                                 var fieldRef = new FieldReference(CSharpParser.MapType(macFieldSym.ContainingType), macFieldSym.Name, CSharpParser.MapType(macFieldSym.Type));
                                 _target.Add(new LoadFieldInstruction(fieldRef));
                             }
                         }
-                        // compile RHS
+
+                        // Compile RHS
                         CompileExpression(assignment.Right);
-                        // emit arithmetic op
+                        
+                        // Arithmetic
                         ArithmeticOp aop = kind switch
                         {
                             Microsoft.CodeAnalysis.CSharp.SyntaxKind.AddAssignmentExpression => ArithmeticOp.Add,
@@ -926,35 +951,34 @@ namespace SharpIR
                             _ => throw new NotSupportedException("Unsupported compound assignment")
                         };
                         _target.Add(new ArithmeticInstruction(aop));
-                        // fall through to store into LHS
                     }
                     else
                     {
-                        // Simple assignment: if LHS is a member access, compile instance first, then RHS, so stack is [instance, value]
-                        if (assignment.Left is MemberAccessExpressionSyntax ma)
+                        // Simple assignment
+                        if (assignment.Left is IdentifierNameSyntax && isInstanceMember)
+                        {
+                            _target.Add(new LoadArgInstruction(_argIndices["this"]));
+                        }
+                        else if (assignment.Left is MemberAccessExpressionSyntax ma)
                         {
                             CompileExpression(ma.Expression);
-                            CompileExpression(assignment.Right);
                         }
-                        else
-                        {
-                            // Compile right side
-                            CompileExpression(assignment.Right);
-                        }
+                        
+                        CompileExpression(assignment.Right);
                     }
+
                     // Store to left
-                    if (assignment.Left is IdentifierNameSyntax identifier)
+                    if (assignment.Left is IdentifierNameSyntax)
                     {
-                        var symbol = _semanticModel.GetSymbolInfo(identifier).Symbol;
-                        if (symbol is IParameterSymbol param)
+                        if (targetSymbol is IParameterSymbol param)
                         {
                             _target.Add(new StoreArgInstruction(param.Name));
                         }
-                        else if (symbol is ILocalSymbol local)
+                        else if (targetSymbol is ILocalSymbol local)
                         {
                             _target.Add(new StoreLocalInstruction(local.Name));
                         }
-                        else if (symbol is IFieldSymbol field)
+                        else if (targetSymbol is IFieldSymbol field)
                         {
                             var fieldRef = new FieldReference(CSharpParser.MapType(field.ContainingType), field.Name, CSharpParser.MapType(field.Type));
                             if (field.IsStatic)
@@ -963,47 +987,43 @@ namespace SharpIR
                             }
                             else
                             {
-                                _target.Add(new LoadArgInstruction(_argIndices["this"]));
+                                // 'this' is already on stack (pushed before RHS)
                                 _target.Add(new StoreFieldInstruction(fieldRef));
+                            }
+                        }
+                        else if (targetSymbol is IPropertySymbol prop)
+                        {
+                            var setter = new MethodReference(CSharpParser.MapType(prop.ContainingType), $"set_{prop.Name}", TypeReference.Void, new List<TypeReference> { CSharpParser.MapType(prop.Type) });
+                            if (prop.IsStatic)
+                            {
+                                _target.Add(new CallInstruction(setter));
+                            }
+                            else
+                            {
+                                // 'this' is already on stack
+                                _target.Add(new CallVirtualInstruction(setter));
                             }
                         }
                     }
                     else if (assignment.Left is MemberAccessExpressionSyntax memberAccess)
                     {
                         var macSym = _semanticModel.GetSymbolInfo(memberAccess).Symbol;
-                        var macFieldSym = macSym as IFieldSymbol;
-                        var macPropSym = macSym as IPropertySymbol;
-                        // If target is a 'this' member, use 'this' for store
-                        if (memberAccess.Expression is ThisExpressionSyntax)
+                        if (macSym is IFieldSymbol macFieldSym)
                         {
-                            if (macFieldSym != null)
-                            {
-                                var fieldRef = new FieldReference(CSharpParser.MapType(macFieldSym.ContainingType), macFieldSym.Name, CSharpParser.MapType(macFieldSym.Type));
-                                _target.Add(new LoadArgInstruction(_argIndices["this"]));
+                            var fieldRef = new FieldReference(CSharpParser.MapType(macFieldSym.ContainingType), macFieldSym.Name, CSharpParser.MapType(macFieldSym.Type));
+                            if (macFieldSym.IsStatic)
+                                _target.Add(new StoreStaticFieldInstruction(fieldRef));
+                            else
                                 _target.Add(new StoreFieldInstruction(fieldRef));
-                            }
-                            else if (macPropSym != null)
-                            {
-                                var setter = new MethodReference(CSharpParser.MapType(macPropSym.ContainingType), $"set_{macPropSym.Name}", TypeReference.Void, new List<TypeReference> { CSharpParser.MapType(macPropSym.Type) });
-                                _target.Add(new LoadArgInstruction(_argIndices["this"]));
-                                _target.Add(new CallVirtualInstruction(setter));
-                            }
                         }
-                        else if (macFieldSym != null || macPropSym != null)
+                        else if (macSym is IPropertySymbol macPropSym)
                         {
-                            // For both compound and simple assignment, after above logic, stack is [instance, value]
-                            if (macPropSym != null)
-                            {
-                                var setter = new MethodReference(CSharpParser.MapType(macPropSym.ContainingType), $"set_{macPropSym.Name}", TypeReference.Void, new List<TypeReference> { CSharpParser.MapType(macPropSym.Type) });
+                            var setter = new MethodReference(CSharpParser.MapType(macPropSym.ContainingType), $"set_{macPropSym.Name}", TypeReference.Void, new List<TypeReference> { CSharpParser.MapType(macPropSym.Type) });
+                            if (macPropSym.IsStatic)
+                                _target.Add(new CallInstruction(setter));
+                            else
                                 _target.Add(new CallVirtualInstruction(setter));
-                            }
-                            else if (macFieldSym != null)
-                            {
-                                var fieldRef = new FieldReference(CSharpParser.MapType(macFieldSym.ContainingType), macFieldSym.Name, CSharpParser.MapType(macFieldSym.Type));
-                                _target.Add(new StoreFieldInstruction(fieldRef));
-                            }
                         }
-                    }
                     }
                 }
 
@@ -1040,3 +1060,4 @@ namespace SharpIR
             }
         }
     }
+}

@@ -42,7 +42,7 @@ namespace SharpIR
                             .WithParsed(h => { });
                         return;
                     }
-
+        
                     if (o.Version)
                     {
                         Console.WriteLine($"SharpIR {Assembly.GetExecutingAssembly().GetName().Version}");
