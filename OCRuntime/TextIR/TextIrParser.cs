@@ -40,14 +40,16 @@ internal static class TextIrParser
 
             while (!IsAtEnd())
             {
+                var attributes = ParseAttributes();
+
                 if (CheckKeyword("class"))
-                    types.Add(ParseType("class"));
+                    types.Add(ParseType("class", attributes));
                 else if (CheckKeyword("interface"))
-                    types.Add(ParseType("interface"));
+                    types.Add(ParseType("interface", attributes));
                 else if (CheckKeyword("struct"))
-                    types.Add(ParseType("struct"));
+                    types.Add(ParseType("struct", attributes));
                 else if (CheckKeyword("enum"))
-                    types.Add(ParseType("enum"));
+                    types.Add(ParseType("enum", attributes));
                 else if (Match(TextIrTokenType.Newline) || Match(TextIrTokenType.Eof))
                     continue;
                 else
@@ -64,16 +66,26 @@ internal static class TextIrParser
             };
         }
 
-        private TypeDto ParseType(string kind)
+        private TypeDto ParseType(string kind, List<AttributeDto> attributes)
         {
             ConsumeKeyword(kind, $"Expected '{kind}'");
             var typeName = ConsumeIdentifier($"Expected {kind} name").Value;
 
-            // Optional : BaseOrInterface[, ...] (ignored for now)
+            string? baseType = null;
+            var interfaces = new List<string>();
+
+            // Optional : BaseOrInterface[, ...]
             if (Match(TextIrTokenType.Colon))
             {
-                while (!Check(TextIrTokenType.LBrace) && !IsAtEnd())
-                    Advance();
+                if (!Check(TextIrTokenType.LBrace))
+                {
+                    baseType = ConsumeIdentifier("Expected base type").Value;
+                }
+                
+                while (Match(TextIrTokenType.Comma))
+                {
+                    interfaces.Add(ConsumeIdentifier("Expected interface name").Value);
+                }
             }
 
             Consume(TextIrTokenType.LBrace, "Expected '{' to start type body");
@@ -86,6 +98,8 @@ internal static class TextIrParser
                     // Skip blank lines
                     if (Match(TextIrTokenType.Newline))
                         continue;
+
+                    var memberAttributes = ParseAttributes();
 
                     // Collect optional modifiers
                     string? access = null;
@@ -112,15 +126,15 @@ internal static class TextIrParser
 
                 if (CheckKeyword("field"))
                 {
-                    fields.Add(ParseField(access, isStatic));
+                    fields.Add(ParseField(access, isStatic, memberAttributes));
                 }
                 else if (CheckKeyword("method"))
                 {
-                    methods.Add(ParseMethod(isStatic, isVirtual, isOverride, isAbstract, isConstructor: false, access));
+                    methods.Add(ParseMethod(isStatic, isVirtual, isOverride, isAbstract, isConstructor: false, access, memberAttributes));
                 }
                 else if (CheckKeyword("constructor"))
                 {
-                    methods.Add(ParseMethod(isStatic: false, isVirtual: false, isOverride: false, isAbstract: false, isConstructor: true, access));
+                    methods.Add(ParseMethod(isStatic: false, isVirtual: false, isOverride: false, isAbstract: false, isConstructor: true, access, memberAttributes));
                 }
                 else
                 {
@@ -139,16 +153,18 @@ internal static class TextIrParser
                 access = "public",
                 isAbstract = false,
                 isSealed = false,
+                baseType = baseType,
+                attributes = attributes.ToArray(),
                 fields = fields.ToArray(),
                 methods = methods.ToArray(),
-                interfaces = JsonSerializer.SerializeToElement(Array.Empty<object>()),
+                interfaces = interfaces.ToArray(),
                 baseInterfaces = JsonSerializer.SerializeToElement(Array.Empty<object>()),
                 genericParameters = JsonSerializer.SerializeToElement(Array.Empty<object>()),
                 properties = JsonSerializer.SerializeToElement(Array.Empty<object>())
             };
         }
 
-        private FieldDto ParseField(string? access, bool isStatic)
+        private FieldDto ParseField(string? access, bool isStatic, List<AttributeDto> attributes)
         {
             ConsumeKeyword("field", "Expected 'field'");
             var name = ConsumeIdentifier("Expected field name").Value;
@@ -162,11 +178,12 @@ internal static class TextIrParser
                 type = typeText,
                 access = access,
                 isStatic = isStatic,
-                isReadOnly = false
+                isReadOnly = false,
+                attributes = attributes.ToArray()
             };
         }
 
-        private MethodDto ParseMethod(bool isStatic, bool isVirtual, bool isOverride, bool isAbstract, bool isConstructor, string? access)
+        private MethodDto ParseMethod(bool isStatic, bool isVirtual, bool isOverride, bool isAbstract, bool isConstructor, string? access, List<AttributeDto> attributes)
         {
             if (isConstructor)
             {
@@ -222,6 +239,7 @@ internal static class TextIrParser
                 isOverride = isOverride,
                 isAbstract = isAbstract,
                 isConstructor = isConstructor,
+                attributes = attributes.ToArray(),
                 parameters = parameters.ToArray(),
                 localVariables = locals.ToArray(),
                 instructionCount = instructions.Count,
@@ -397,7 +415,7 @@ internal static class TextIrParser
             var block = new List<InstructionDto>();
             block.AddRange(EmitValueLoad(lhs, localNames, paramNames));
             block.AddRange(EmitValueLoad(rhs, localNames, paramNames));
-            block.Add(new InstructionDto { opCode = op, operand = default });
+            block.Add(new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { }) });
 
             return new { kind = "block", block = block.ToArray() };
         }
@@ -591,7 +609,7 @@ internal static class TextIrParser
 
             // Default: raw args as strings
             return args.Count == 0
-                ? new InstructionDto { opCode = op, operand = default }
+                ? new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { }) }
                 : new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { arguments = args.Select(a => a.Value).ToArray() }) };
         }
 
@@ -663,6 +681,45 @@ internal static class TextIrParser
                 returnType = returnType
             };
         }
+
+        private List<AttributeDto> ParseAttributes()
+        {
+            var attributes = new List<AttributeDto>();
+            while (Match(TextIrTokenType.LBracket))
+            {
+                do
+                {
+                    var name = ConsumeIdentifier("Expected attribute name").Value;
+                    var args = new List<object>();
+                    if (Match(TextIrTokenType.LParen))
+                    {
+                        if (!Check(TextIrTokenType.RParen))
+                        {
+                            do
+                            {
+                                if (Match(TextIrTokenType.String))
+                                    args.Add(Previous().Value);
+                                else if (Match(TextIrTokenType.Number))
+                                    args.Add(double.Parse(Previous().Value));
+                                else if (Match(TextIrTokenType.Identifier))
+                                    args.Add(Previous().Value);
+                                else
+                                    throw new Exception("Invalid attribute argument");
+                            } while (Match(TextIrTokenType.Comma));
+                        }
+                        Consume(TextIrTokenType.RParen, "Expected ')' after attribute arguments");
+                    }
+                    attributes.Add(new AttributeDto { type = name, constructorArguments = args.ToArray() });
+                } while (Match(TextIrTokenType.Comma));
+
+                Consume(TextIrTokenType.RBracket, "Expected ']' after attributes");
+                
+                // Consume optional newline after attributes
+                Match(TextIrTokenType.Newline);
+            }
+            return attributes;
+        }
+
 
         private string ReadTypeTextUntilCommaOrParen()
         {

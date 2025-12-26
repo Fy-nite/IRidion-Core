@@ -11,19 +11,7 @@ namespace OCRuntime
     {
         public static void Main(string[] args)
         {
-            // Hardcoded Text IR HelloWorld
-            var textIr = @"module HelloWorld
-class Program {
-    static method Main() -> void {
-        ldstr ""Hello from Text IR!""
-        call System.Console.WriteLine(string) -> void
-        ret
-    }
-}
-";
-            Console.WriteLine("--- Text IR Input ---\n" + textIr);
-            var runtime = new IRRuntime(textIr);
-            runtime.Run();
+            RuntimeGapSmokeTests.RunAll();
         }
     }
 }

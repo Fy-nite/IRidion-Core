@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+﻿﻿using System.Reflection;
 using System.Text.Json;
 using OCRuntime.IR;
 using OCRuntime.Runtime;
@@ -8,6 +8,16 @@ namespace OCRuntime;
 
 public sealed class IRRuntime
 {
+    private class ExceptionSignal : Exception
+    {
+        public object? ExceptionObject { get; }
+
+        public ExceptionSignal(object? exceptionObject)
+        {
+            ExceptionObject = exceptionObject;
+        }
+    }
+
     public enum InputFormat
     {
         Auto,
@@ -21,12 +31,13 @@ public sealed class IRRuntime
     public Action<CallFrame, InstructionDto>? OnStep;
     public Action<Exception>? OnException;
 
-    public delegate object? NativeMethod(object?[] args);
+    public delegate object? NativeMethod(object? instance, object?[] args);
     private readonly Dictionary<string, NativeMethod> _nativeMethods = new(StringComparer.Ordinal);
 
     public bool EnableReflectionNativeMethods { get; set; }
 
     private readonly Dictionary<(string declaringType, string fieldName), object?> _staticFields = new();
+    private Dictionary<string, TypeDto> _typeMap = new(StringComparer.Ordinal);
 
     public IRRuntime(string input, InputFormat format = InputFormat.Auto, bool enableReflectionNativeMethods = false)
     {
@@ -38,12 +49,43 @@ public sealed class IRRuntime
             InputFormat.TextIr => TextIrParser.ParseModule(input),
             _ => AutoParse(input)
         };
+        _typeMap = BuildTypeMap();
 
-        _nativeMethods["System.Console.WriteLine(string)"] = args =>
+        _nativeMethods["System.Console.WriteLine(string)"] = (instance, args) =>
         {
             Console.WriteLine(args.Length > 0 ? args[0] : null);
             return null;
         };
+
+        _nativeMethods["System.Console.Write(string)"] = (instance, args) =>
+        {
+            Console.Write(args.Length > 0 ? args[0] : null);
+            return null;
+        };
+        _nativeMethods["System.Console.WriteLine(int32)"] = (instance, args) =>
+        {
+            Console.WriteLine(args.Length > 0 ? args[0] : null);
+            return null;
+        };
+        _nativeMethods["System.Console.WriteLine(object)"] = (instance, args) =>
+        {
+            Console.WriteLine(args.Length > 0 ? args[0] : null);
+            return null;
+        };
+        _nativeMethods["System.Console.ReadLine()"] = (instance, args) => Console.ReadLine();
+        _nativeMethods["System.Console.Clear()"] = (instance, args) =>
+        {
+            Console.Clear();
+            return null;
+        };
+        _nativeMethods["System.Console.Beep()"] = (instance, args) =>
+        {
+            Console.Beep();
+            return null;
+        };
+        
+        _nativeMethods["System.Object.ToString()"] = (instance, args) => instance?.ToString();
+        _nativeMethods["System.Object.GetType()"] = (instance, args) => instance?.GetType();
     }
     public void RegisterNativeMethod(string signature, NativeMethod method)
     {
@@ -85,26 +127,29 @@ public sealed class IRRuntime
 
     private void Execute()
     {
-        try
+        while (_callStack.Count > 0)
         {
-            while (_callStack.Count > 0)
+            var frame = _callStack.Peek();
+
+            if (frame.IP >= frame.Method.instructions.Length)
             {
-                var frame = _callStack.Peek();
-
-                if (frame.IP >= frame.Method.instructions.Length)
-                {
-                    _callStack.Pop();
-                    continue;
-                }
-
-                var instr = frame.Method.instructions[frame.IP++];
-                OnStep?.Invoke(frame, instr);
-                ExecuteInstruction(frame, instr);
+                _callStack.Pop();
+                continue;
             }
+
+            var instr = frame.Method.instructions[frame.IP++];
+            OnStep?.Invoke(frame, instr);
+            ExecuteInstruction(frame, instr);
         }
-        catch (Exception ex)
+
+        // Check for unhandled exception
+        if (_callStack.Count > 0)
         {
-            OnException?.Invoke(ex);
+            var topFrame = _callStack.Peek();
+            if (topFrame.PendingException != null)
+            {
+                OnException?.Invoke(topFrame.PendingException as Exception ?? new Exception($"Unhandled IR exception: {topFrame.PendingException}"));
+            }
         }
     }
 
@@ -244,7 +289,15 @@ public sealed class IRRuntime
                 {
                     var typeName = GetString(instr.operand, "type")
                                    ?? throw new InvalidOperationException("newobj missing operand.type");
-                    frame.EvalStack.Push(new ManagedObject(typeName));
+                    var obj = new ManagedObject(typeName);
+                    
+                    // Attach attributes
+                    if (_typeMap.TryGetValue(typeName, out var typeDto))
+                    {
+                        obj.AttachAttributesFromIR(typeDto, _typeMap, ResolveStaticField);
+                    }
+
+                    frame.EvalStack.Push(obj);
                     return;
                 }
 
@@ -431,8 +484,8 @@ public sealed class IRRuntime
 
                 case "throw":
                 {
-                    var ex = frame.EvalStack.Pop();
-                    throw ex as Exception ?? new Exception(ex?.ToString());
+                    frame.PendingException = frame.EvalStack.Pop();
+                    return;
                 }
 
                 case "try":
@@ -442,12 +495,11 @@ public sealed class IRRuntime
                     var catchBlocks = GetCatchBlocks(instr.operand);
                     var finallyBlock = GetInstructionBlock(instr.operand, "finallyBlock");
 
-                    try
+                    ExecuteBlock(frame, tryBlock);
+                    if (frame.PendingException != null)
                     {
-                        ExecuteBlock(frame, tryBlock);
-                    }
-                    catch (Exception ex)
-                    {
+                        var ex = frame.PendingException;
+                        frame.PendingException = null; // clear it
                         bool handled = false;
                         foreach (var cb in catchBlocks)
                         {
@@ -458,8 +510,17 @@ public sealed class IRRuntime
                                 handled = true;
                                 break;
                             }
+                            // Check for IR exception types (ManagedObject)
+                            if (ex is ManagedObject mo && string.Equals(mo.TypeName, cb.exceptionType, StringComparison.Ordinal))
+                            {
+                                frame.EvalStack.Push(ex);
+                                ExecuteBlock(frame, cb.block);
+                                handled = true;
+                                break;
+                            }
+                            // Fallback for CLR types
                             var catchType = ResolveClrType(cb.exceptionType);
-                            if (catchType != null && catchType.IsAssignableFrom(ex.GetType()))
+                            if (catchType != null && ex != null && catchType.IsAssignableFrom(ex.GetType()))
                             {
                                 frame.EvalStack.Push(ex);
                                 ExecuteBlock(frame, cb.block);
@@ -468,14 +529,15 @@ public sealed class IRRuntime
                             }
                         }
                         if (!handled)
-                            throw;
-                    }
-                    finally
-                    {
-                        if (finallyBlock != null)
                         {
-                            ExecuteBlock(frame, finallyBlock);
+                            // re-set the pending exception for upper frames
+                            frame.PendingException = ex;
                         }
+                    }
+
+                    if (finallyBlock != null)
+                    {
+                        ExecuteBlock(frame, finallyBlock);
                     }
                     return;
                 }
@@ -496,6 +558,8 @@ public sealed class IRRuntime
         foreach (var i in instructions)
         {
             ExecuteInstruction(frame, i);
+            if (frame.PendingException != null)
+                break;
         }
     }
 
@@ -541,8 +605,13 @@ public sealed class IRRuntime
 
         if (_nativeMethods.TryGetValue(signature, out var native))
         {
-            var result = native(args);
-            if (!IsVoid(target.returnType))
+            var result = native(instance, args);
+            // If the result is a ManagedObject with type name ending in Exception, treat as VM exception
+            if (result is ManagedObject mo && mo.TypeName.EndsWith("Exception", StringComparison.Ordinal))
+            {
+                frame.PendingException = mo;
+            }
+            else if (!IsVoid(target.returnType))
             {
                 frame.EvalStack.Push(result);
             }
@@ -879,4 +948,24 @@ public sealed class IRRuntime
         }
         return list.ToArray();
     }
+
+    private Dictionary<string, TypeDto> BuildTypeMap()
+    {
+        var map = new Dictionary<string, TypeDto>(StringComparer.Ordinal);
+        foreach (var t in _program.types)
+        {
+            map[t.name] = t;
+        }
+        return map;
+    }
+
+    private object? ResolveStaticField(string key)
+    {
+        var parts = key.Split('.');
+        if (parts.Length != 2) return null;
+        var k = (parts[0], parts[1]);
+        _staticFields.TryGetValue(k, out var val);
+        return val;
+    }
 }
+

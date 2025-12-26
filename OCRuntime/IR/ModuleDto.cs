@@ -21,10 +21,14 @@ public sealed class TypeDto
     public bool isAbstract { get; set; }
     public bool isSealed { get; set; }
 
+    public string? baseType { get; set; }
+
+    public AttributeDto[] attributes { get; set; } = Array.Empty<AttributeDto>();
+
     public FieldDto[] fields { get; set; } = Array.Empty<FieldDto>();
     public MethodDto[] methods { get; set; } = Array.Empty<MethodDto>();
 
-    public JsonElement interfaces { get; set; }
+    public string[] interfaces { get; set; } = Array.Empty<string>();
     public JsonElement baseInterfaces { get; set; }
     public JsonElement genericParameters { get; set; }
     public JsonElement properties { get; set; }
@@ -37,6 +41,7 @@ public sealed class FieldDto
     public string? access { get; set; }
     public bool isStatic { get; set; }
     public bool isReadOnly { get; set; }
+    public AttributeDto[] attributes { get; set; } = Array.Empty<AttributeDto>();
 }
 
 public sealed class MethodDto
@@ -50,6 +55,8 @@ public sealed class MethodDto
     public bool isOverride { get; set; }
     public bool isAbstract { get; set; }
     public bool isConstructor { get; set; }
+
+    public AttributeDto[] attributes { get; set; } = Array.Empty<AttributeDto>();
 
     public ParameterDto[] parameters { get; set; } = Array.Empty<ParameterDto>();
     public LocalVariableDto[] localVariables { get; set; } = Array.Empty<LocalVariableDto>();
@@ -68,4 +75,14 @@ public sealed class LocalVariableDto
 {
     public string name { get; set; } = "";
     public string type { get; set; } = "";
+}
+
+public sealed class AttributeDto
+{
+    public string type { get; set; } = "";
+    // For simplicity, we'll store arguments as strings or basic types if possible, 
+    // but JSON deserialization of object[] can be tricky. 
+    // Let's use JsonElement[] for now or just ignore args in this pass if not strictly needed.
+    // But the user wants to "use Custom Attributes", so args might be important.
+    public object[] constructorArguments { get; set; } = Array.Empty<object>();
 }

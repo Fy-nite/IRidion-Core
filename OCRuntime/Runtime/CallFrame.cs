@@ -16,6 +16,8 @@ public sealed class CallFrame
 
     public ManagedObject? This { get; set; }
 
+    public object? PendingException { get; set; }
+
     public CallFrame(MethodDto method, object?[]? args = null)
     {
         Method = method;

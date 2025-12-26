@@ -17,6 +17,8 @@ internal enum TextIrTokenType
 
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     LParen,
     RParen,
 
@@ -42,7 +44,7 @@ internal static class TextIrLexer
         "field", "method", "constructor", "local",
         "public", "private", "protected", "internal",
         "static", "virtual", "override", "abstract", "sealed",
-        "implements", "else"
+        "implements", "else", "catch", "finally"
     };
 
     private static readonly HashSet<string> Instructions = new(StringComparer.Ordinal)
@@ -64,7 +66,7 @@ internal static class TextIrLexer
         "call", "callvirt", "newobj", "newarr", "ldelem", "stelem",
 
         // Control flow (structured)
-        "if", "while", "break", "continue",
+        "if", "while", "break", "continue", "try",
 
         // Branch-based (not fully supported in managed runtime yet)
         "br", "brtrue", "brfalse", "beq", "bne", "bgt", "bge", "blt", "ble",
@@ -214,6 +216,8 @@ internal static class TextIrLexer
             {
                 case '{': Add(TextIrTokenType.LBrace, "{", startLine, startCol); Advance(); continue;
                 case '}': Add(TextIrTokenType.RBrace, "}", startLine, startCol); Advance(); continue;
+                case '[': Add(TextIrTokenType.LBracket, "[", startLine, startCol); Advance(); continue;
+                case ']': Add(TextIrTokenType.RBracket, "]", startLine, startCol); Advance(); continue;
                 case '(': Add(TextIrTokenType.LParen, "(", startLine, startCol); Advance(); continue;
                 case ')': Add(TextIrTokenType.RParen, ")", startLine, startCol); Advance(); continue;
                 case ':': Add(TextIrTokenType.Colon, ":", startLine, startCol); Advance(); continue;
