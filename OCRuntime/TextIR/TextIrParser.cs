@@ -201,7 +201,23 @@ internal static class TextIrParser
             }
             else
             {
-                methodName = ConsumeIdentifier("Expected method name").Value;
+                // Support legacy/alternate syntax where constructor methods are written as '.ctor' or '.cctor'
+                if (Peek().Type == TextIrTokenType.Dot)
+                {
+                    // Consume '.' and then expect an identifier like 'ctor' or 'cctor'
+                    Advance(); // consume '.'
+                    var id = ConsumeIdentifier("Expected constructor name after '.'");
+                    methodName = "." + id.Value;
+                    if (string.Equals(id.Value, "ctor", StringComparison.Ordinal) || string.Equals(id.Value, "cctor", StringComparison.Ordinal))
+                    {
+                        // Treat .ctor/.cctor as a constructor
+                        isConstructor = true;
+                    }
+                }
+                else
+                {
+                    methodName = ConsumeIdentifier("Expected method name").Value;
+                }
             }
 
             var parameters = ParseParameters();
@@ -593,7 +609,7 @@ internal static class TextIrParser
 
             if (op == "newobj" && args.Count >= 1)
             {
-                // newobj TypeName[.constructor(...)]
+                // newobj TypeName[.constructor(...)] 
                 var typeTokenText = string.Join("", args.Select(a => a.Value));
                 var typeName = typeTokenText;
                 var dot = typeName.IndexOf('.', StringComparison.Ordinal);

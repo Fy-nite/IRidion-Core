@@ -967,5 +967,9 @@ public sealed class IRRuntime
         _staticFields.TryGetValue(k, out var val);
         return val;
     }
+
+    public IReadOnlyList<CallFrame> CallStack => _callStack.Reverse().ToList();
 }
+
+
 
