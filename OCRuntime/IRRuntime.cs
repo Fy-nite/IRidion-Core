@@ -89,7 +89,14 @@ public sealed class IRRuntime
     }
     public void RegisterNativeMethod(string signature, NativeMethod method)
     {
+        Console.WriteLine($"Registering native method: '{signature}'");
         _nativeMethods[signature] = method;
+        var trimmed = signature.Trim();
+        if (trimmed != signature)
+        {
+            Console.WriteLine($"Also registering trimmed signature: '{trimmed}'");
+            _nativeMethods[trimmed] = method;
+        }
     }
     private static ModuleDto AutoParse(string input)
     {
@@ -588,6 +595,8 @@ public sealed class IRRuntime
             throw new InvalidOperationException("call/callvirt missing operand.method");
 
         var signature = $"{target.declaringType}.{target.name}({string.Join(",", target.parameterTypes)})";
+        // Diagnostic: log call signature to help debug native binding issues
+        Console.WriteLine($"IR Call Signature: {signature}");
 
         var args = new object?[target.parameterTypes.Length];
         for (int i = args.Length - 1; i >= 0; i--)

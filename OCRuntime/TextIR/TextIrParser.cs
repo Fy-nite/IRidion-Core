@@ -485,7 +485,8 @@ internal static class TextIrParser
 
             if (expr.Count == 1 && expr[0].Type == TextIrTokenType.Number)
             {
-                yield return new InstructionDto { opCode = "ldc", operand = JsonSerializer.SerializeToElement(new { value = expr[0].Value, type = "int32" }) };
+                // Use int64 for numeric literals to avoid overflow for large constants (e.g. ARGB colors)
+                yield return new InstructionDto { opCode = "ldc", operand = JsonSerializer.SerializeToElement(new { value = expr[0].Value, type = "int64" }) };
                 yield break;
             }
 
@@ -577,10 +578,11 @@ internal static class TextIrParser
 
             if (op == "ldc" && args.Count >= 1)
             {
+                // Default numeric literal type to int64 to support large constants
                 return new InstructionDto
                 {
                     opCode = "ldc",
-                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value, type = "int32" })
+                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value, type = "int64" })
                 };
             }
 
