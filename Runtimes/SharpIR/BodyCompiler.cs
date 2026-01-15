@@ -306,7 +306,21 @@ namespace SharpIR
                             typeInfo = default;
                         }
                         var typeRef = typeInfo.Type != null ? Helpers.MapType(typeInfo.Type) : TypeReference.FromName("object");
-                        _target.Add(new NewObjectInstruction(typeRef));
+
+                        // Compile constructor arguments
+                        var argInstructions = new List<Instruction>();
+                        if (objCreation.ArgumentList != null)
+                        {
+                            foreach (var arg in objCreation.ArgumentList.Arguments)
+                            {
+                                // Compile each argument expression to a temporary instruction list
+                                var tempList = new InstructionList();
+                                var tempCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, tempList);
+                                tempCompiler.CompileExpression(arg.Expression);
+                                argInstructions.AddRange(tempList);
+                            }
+                        }
+                        _target.Add(new NewObjectInstruction(typeRef, argInstructions));
 
                         // If there's an initializer, apply property setters / field stores
                         if (objCreation.Initializer != null)

@@ -75,7 +75,7 @@ namespace SharpIR
             walker.Visit(root);
             // Output ObjectIR
             var serializer = new ModuleSerializer(module);
-            var json = serializer.DumpToJson();
+            var json = serializer.DumpToIRCode();
             Console.WriteLine("ObjectIR Output:");
             Console.WriteLine(json);
 

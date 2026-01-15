@@ -1445,6 +1445,29 @@ Name = property.Name,
         // For now, we'll use the OpCode name and basic operand formatting
         var opCode = instruction.OpCode.ToString().ToLower();
 
+        // Handle IfInstruction with structured output
+        if (instruction is IfInstruction ifInst)
+        {
+            var sb = new StringBuilder();
+            sb.Append("if (stack)");
+            sb.AppendLine(" {");
+            foreach (var thenInstr in ifInst.ThenBlock)
+            {
+                sb.AppendLine("    " + DumpInstructionAsIRCode(thenInstr));
+            }
+            sb.Append("}");
+            if (ifInst.ElseBlock != null && ifInst.ElseBlock.Count > 0)
+            {
+                sb.AppendLine(" else {");
+                foreach (var elseInstr in ifInst.ElseBlock)
+                {
+                    sb.AppendLine("    " + DumpInstructionAsIRCode(elseInstr));
+                }
+                sb.Append("}");
+            }
+            return sb.ToString();
+        }
+
         // Handle some common instructions with special formatting
         switch (instruction.OpCode)
         {
@@ -1529,9 +1552,13 @@ Name = property.Name,
             case OpCode.Newobj:
                 if (instruction is NewObjectInstruction newObj)
                 {
-                    // For constructors, we need to find the constructor method
-                    // This is simplified - in practice you'd need to look up the constructor
-                    return $"newobj {newObj.Type.GetQualifiedName()}.constructor(/* params */)";
+                    // Emit constructor parameters if present
+                    string paramStr = string.Empty;
+                    if (newObj.Arguments.Count > 0)
+                    {
+                        paramStr = string.Join(", ", newObj.Arguments.Select(DumpInstructionAsIRCode));
+                    }
+                    return $"newobj {newObj.Type.GetQualifiedName()}.constructor({paramStr})";
                 }
                 break;
 

@@ -197,11 +197,15 @@ public sealed class CallVirtualInstruction : Instruction
 
 public sealed class NewObjectInstruction : Instruction
 {
-    public TypeReference Type { get; set; }
 
-    public NewObjectInstruction(TypeReference type) : base(OpCode.Newobj)
+    public TypeReference Type { get; set; }
+    public List<Instruction> Arguments { get; } = new();
+
+    public NewObjectInstruction(TypeReference type, IEnumerable<Instruction>? arguments = null) : base(OpCode.Newobj)
     {
         Type = type;
+        if (arguments != null)
+            Arguments.AddRange(arguments);
     }
 
     public override void Accept(IInstructionVisitor visitor) => visitor.Visit(this);
