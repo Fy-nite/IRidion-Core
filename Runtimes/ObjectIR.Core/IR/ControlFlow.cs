@@ -89,6 +89,7 @@ public abstract class Condition
     public static Condition Stack() => new StackCondition();
     public static Condition Binary(ComparisonOp op) => new BinaryCondition(op);
     public static Condition Expression(Instruction expr) => new ExpressionCondition(expr);
+    public static Condition Block(InstructionList block) => new BlockCondition(block);
 }
 
 /// <summary>
@@ -127,4 +128,19 @@ public sealed class ExpressionCondition : Condition
     }
 
     public override string ToString() => "expression";
+}
+
+/// <summary>
+/// Condition based on an instruction block
+/// </summary>
+public sealed class BlockCondition : Condition
+{
+    public InstructionList Block { get; }
+
+    public BlockCondition(InstructionList block)
+    {
+        Block = block;
+    }
+
+    public override string ToString() => "block";
 }

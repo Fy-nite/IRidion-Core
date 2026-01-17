@@ -1135,14 +1135,58 @@ Name = property.Name,
             }
         }
         
-        // Recursively collect from nested instructions (e.g., while body)
-        if (obj["operand"] is JsonObject nestedOp && nestedOp["body"] is JsonArray bodyInstructions)
+        // Recursively collect from nested instruction blocks (if/while/try)
+        if (obj["operand"] is JsonObject nestedOp)
         {
-            foreach (var bodyInstr in bodyInstructions)
+            if (nestedOp["body"] is JsonArray bodyInstructions)
             {
-                if (bodyInstr is not null)
+                foreach (var bodyInstr in bodyInstructions)
                 {
-                    CollectConstantsFromJsonInstruction(bodyInstr, constants);
+                    if (bodyInstr is not null)
+                    {
+                        CollectConstantsFromJsonInstruction(bodyInstr, constants);
+                    }
+                }
+            }
+
+            if (nestedOp["thenBlock"] is JsonArray thenInstructions)
+            {
+                foreach (var thenInstr in thenInstructions)
+                {
+                    if (thenInstr is not null)
+                    {
+                        CollectConstantsFromJsonInstruction(thenInstr, constants);
+                    }
+                }
+            }
+
+            if (nestedOp["elseBlock"] is JsonArray elseInstructions)
+            {
+                foreach (var elseInstr in elseInstructions)
+                {
+                    if (elseInstr is not null)
+                    {
+                        CollectConstantsFromJsonInstruction(elseInstr, constants);
+                    }
+                }
+            }
+
+            if (nestedOp["condition"] is JsonObject conditionObj)
+            {
+                if (conditionObj["expression"] is JsonObject expressionObj)
+                {
+                    CollectConstantsFromJsonInstruction(expressionObj, constants);
+                }
+
+                if (conditionObj["block"] is JsonArray conditionBlock)
+                {
+                    foreach (var condInstr in conditionBlock)
+                    {
+                        if (condInstr is not null)
+                        {
+                            CollectConstantsFromJsonInstruction(condInstr, constants);
+                        }
+                    }
                 }
             }
         }
@@ -1380,8 +1424,8 @@ Name = property.Name,
     private void DumpMethodAsIRCode(StringBuilder sb, MethodDefinition method, ClassDefinition declaringClass)
     {
         var methodName = method.IsConstructor ? "constructor" : "method";
-        var returnType = method.ReturnType.GetQualifiedName();
-        var parameters = string.Join(", ", method.Parameters.Select(p => $"{p.Name}: {p.Type.GetQualifiedName()}"));
+        var returnType = NormalizeTypeName(method.ReturnType.GetQualifiedName());
+        var parameters = string.Join(", ", method.Parameters.Select(p => $"{p.Name}: {NormalizeTypeName(p.Type.GetQualifiedName())}"));
 
         var implements = "";
         if (method.ImplementsInterface != null)
@@ -1394,7 +1438,7 @@ Name = property.Name,
         // Locals
         foreach (var local in method.Locals)
         {
-            sb.AppendLine($"        local {local.Name}: {local.Type.GetQualifiedName()}");
+            sb.AppendLine($"        local {local.Name}: {NormalizeTypeName(local.Type.GetQualifiedName())}");
         }
 
         if (method.Locals.Count > 0 && method.Instructions.Count > 0)
@@ -1413,8 +1457,8 @@ Name = property.Name,
 
     private void DumpFunctionAsIRCode(StringBuilder sb, FunctionDefinition func)
     {
-        var returnType = func.ReturnType.GetQualifiedName();
-        var parameters = string.Join(", ", func.Parameters.Select(p => $"{p.Name}: {p.Type.GetQualifiedName()}"));
+        var returnType = NormalizeTypeName(func.ReturnType.GetQualifiedName());
+        var parameters = string.Join(", ", func.Parameters.Select(p => $"{p.Name}: {NormalizeTypeName(p.Type.GetQualifiedName())}"));
 
         sb.AppendLine($"// {func.Name} function");
         sb.AppendLine($"function {func.Name}({parameters}) -> {returnType} {{");
@@ -1422,7 +1466,7 @@ Name = property.Name,
         // Locals
         foreach (var local in func.Locals)
         {
-            sb.AppendLine($"    local {local.Name}: {local.Type.GetQualifiedName()}");
+            sb.AppendLine($"    local {local.Name}: {NormalizeTypeName(local.Type.GetQualifiedName())}");
         }
 
         if (func.Locals.Count > 0 && func.Instructions.Count > 0)
@@ -1449,7 +1493,24 @@ Name = property.Name,
         if (instruction is IfInstruction ifInst)
         {
             var sb = new StringBuilder();
-            sb.Append("if (stack)");
+            if (TryGetBooleanConstantCondition(ifInst.Condition, out var ifConst))
+            {
+                sb.AppendLine(ifConst ? "ldc.i4 1" : "ldc.i4 0");
+                sb.Append("if (stack)");
+            }
+            else if (ifInst.Condition is BlockCondition bc && bc.Block != null && bc.Block.Count > 0)
+            {
+                // Emit the raw condition instructions (preserves argument push order and comparison)
+                foreach (var condInstr in bc.Block)
+                {
+                    sb.AppendLine(DumpInstructionAsIRCode(condInstr));
+                }
+                sb.Append("if (stack)");
+            }
+            else
+            {
+                sb.Append($"if ({FormatCondition(ifInst.Condition)})");
+            }
             sb.AppendLine(" {");
             foreach (var thenInstr in ifInst.ThenBlock)
             {
@@ -1468,6 +1529,73 @@ Name = property.Name,
             return sb.ToString();
         }
 
+        // Handle WhileInstruction with structured output
+        if (instruction is WhileInstruction whileInst)
+        {
+            var sb = new StringBuilder();
+            if (TryGetBooleanConstantCondition(whileInst.Condition, out var whileConst))
+            {
+                sb.AppendLine(whileConst ? "ldc.i4 1" : "ldc.i4 0");
+                sb.Append("while (stack)");
+            }
+            else if (whileInst.Condition is BlockCondition wbc && wbc.Block != null && wbc.Block.Count > 0)
+            {
+                // Emit raw condition instructions then check stack
+                foreach (var condInstr in wbc.Block)
+                {
+                    sb.AppendLine(DumpInstructionAsIRCode(condInstr));
+                }
+                sb.Append("while (stack)");
+            }
+            else
+            {
+                sb.Append($"while ({FormatCondition(whileInst.Condition)})");
+            }
+            sb.AppendLine(" {");
+            foreach (var bodyInstr in whileInst.Body)
+            {
+                sb.AppendLine("    " + DumpInstructionAsIRCode(bodyInstr));
+            }
+            sb.Append("}");
+            return sb.ToString();
+        }
+
+        // Handle TryInstruction with structured output
+        if (instruction is TryInstruction tryInst)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("try {");
+            foreach (var tryInstr in tryInst.TryBlock)
+            {
+                sb.AppendLine("    " + DumpInstructionAsIRCode(tryInstr));
+            }
+            sb.Append("}");
+
+            foreach (var catchClause in tryInst.CatchClauses)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"catch ({catchClause.ExceptionType.GetQualifiedName()} {catchClause.VariableName}) {{");
+                foreach (var catchInstr in catchClause.Body)
+                {
+                    sb.AppendLine("    " + DumpInstructionAsIRCode(catchInstr));
+                }
+                sb.Append("}");
+            }
+
+            if (tryInst.FinallyBlock != null && tryInst.FinallyBlock.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("finally {");
+                foreach (var finInstr in tryInst.FinallyBlock)
+                {
+                    sb.AppendLine("    " + DumpInstructionAsIRCode(finInstr));
+                }
+                sb.Append("}");
+            }
+
+            return sb.ToString();
+        }
+
         // Handle some common instructions with special formatting
         switch (instruction.OpCode)
         {
@@ -1475,6 +1603,13 @@ Name = property.Name,
                 if (instruction is LoadArgInstruction loadArg)
                 {
                     return $"ldarg {loadArg.Index}";
+                }
+                break;
+
+            case OpCode.Starg:
+                if (instruction is StoreArgInstruction storeArg)
+                {
+                    return $"starg {storeArg.ArgumentName}";
                 }
                 break;
 
@@ -1499,10 +1634,24 @@ Name = property.Name,
                 }
                 break;
 
+            case OpCode.Ldsfld:
+                if (instruction is LoadStaticFieldInstruction loadStatic)
+                {
+                    return $"ldsfld {loadStatic.Field.DeclaringType.GetQualifiedName()}.{loadStatic.Field.Name}";
+                }
+                break;
+
             case OpCode.Stfld:
                 if (instruction is StoreFieldInstruction storeField)
                 {
                     return $"stfld {storeField.Field.DeclaringType.GetQualifiedName()}.{storeField.Field.Name}";
+                }
+                break;
+
+            case OpCode.Stsfld:
+                if (instruction is StoreStaticFieldInstruction storeStatic)
+                {
+                    return $"stsfld {storeStatic.Field.DeclaringType.GetQualifiedName()}.{storeStatic.Field.Name}";
                 }
                 break;
 
@@ -1535,8 +1684,8 @@ Name = property.Name,
                 if (instruction is CallInstruction call)
                 {
                     var methodRef = call.Method;
-                    var args = string.Join(", ", methodRef.ParameterTypes.Select(t => t.GetQualifiedName()));
-                    return $"call {methodRef.DeclaringType.GetQualifiedName()}.{methodRef.Name}({args}) -> {methodRef.ReturnType.GetQualifiedName()}";
+                    var args = string.Join(", ", methodRef.ParameterTypes.Select(t => NormalizeTypeName(t.GetQualifiedName())));
+                    return $"call {NormalizeTypeName(methodRef.DeclaringType.GetQualifiedName())}.{methodRef.Name}({args}) -> {NormalizeTypeName(methodRef.ReturnType.GetQualifiedName())}";
                 }
                 break;
 
@@ -1544,8 +1693,8 @@ Name = property.Name,
                 if (instruction is CallVirtualInstruction callVirt)
                 {
                     var methodRef = callVirt.Method;
-                    var args = string.Join(", ", methodRef.ParameterTypes.Select(t => t.GetQualifiedName()));
-                    return $"callvirt {methodRef.DeclaringType.GetQualifiedName()}.{methodRef.Name}({args}) -> {methodRef.ReturnType.GetQualifiedName()}";
+                    var args = string.Join(", ", methodRef.ParameterTypes.Select(t => NormalizeTypeName(t.GetQualifiedName())));
+                    return $"callvirt {NormalizeTypeName(methodRef.DeclaringType.GetQualifiedName())}.{methodRef.Name}({args}) -> {NormalizeTypeName(methodRef.ReturnType.GetQualifiedName())}";
                 }
                 break;
 
@@ -1558,7 +1707,14 @@ Name = property.Name,
                     {
                         paramStr = string.Join(", ", newObj.Arguments.Select(DumpInstructionAsIRCode));
                     }
-                    return $"newobj {newObj.Type.GetQualifiedName()}.constructor({paramStr})";
+                    return $"newobj {NormalizeTypeName(newObj.Type.GetQualifiedName())}.constructor({paramStr})";
+                }
+                break;
+
+            case OpCode.Newarr:
+                if (instruction is NewArrayInstruction newArr)
+                {
+                    return $"newarr {NormalizeTypeName(newArr.ElementType.GetQualifiedName())}";
                 }
                 break;
 
@@ -1570,6 +1726,15 @@ Name = property.Name,
 
             case OpCode.Pop:
                 return "pop";
+
+            case OpCode.Break:
+                return "break";
+
+            case OpCode.Continue:
+                return "continue";
+
+            case OpCode.Throw:
+                return "throw";
 
             case OpCode.Add:
                 return "add";
@@ -1589,6 +1754,9 @@ Name = property.Name,
             case OpCode.Neg:
                 return "neg";
 
+            case OpCode.Not:
+                return "not";
+
             case OpCode.Ceq:
                 return "ceq";
 
@@ -1597,6 +1765,7 @@ Name = property.Name,
 
             case OpCode.Clt:
                 return "clt";
+
 
             case OpCode.Br:
                 // Branch instructions would need target labels
@@ -1607,10 +1776,294 @@ Name = property.Name,
 
             case OpCode.Brfalse:
                 return "brfalse /* target */";
+
+            case OpCode.Beq:
+                return "beq /* target */";
+
+            case OpCode.Bne:
+                return "bne /* target */";
+
+            case OpCode.Bgt:
+                return "bgt /* target */";
+
+            case OpCode.Blt:
+                return "blt /* target */";
+
+
+            case OpCode.Ldelem:
+                return "ldelem";
+
+            case OpCode.Stelem:
+                return "stelem";
+
+            case OpCode.Castclass:
+                if (instruction is CastInstruction cast)
+                {
+                    return $"castclass {NormalizeTypeName(cast.TargetType.GetQualifiedName())}";
+                }
+                break;
+
+            case OpCode.Isinst:
+                if (instruction is IsInstanceInstruction isInst)
+                {
+                    return $"isinst {NormalizeTypeName(isInst.TargetType.GetQualifiedName())}";
+                }
+                break;
+
+            case OpCode.ConvI4:
+            case OpCode.ConvI8:
+            case OpCode.ConvR4:
+            case OpCode.ConvR8:
+            case OpCode.ConvU4:
+            case OpCode.ConvU8:
+                if (instruction is ConversionInstruction conv)
+                {
+                    return $"conv {NormalizeTypeName(conv.TargetType.GetQualifiedName())}";
+                }
+                break;
         }
 
         // Fallback for unhandled instructions
         return $"{opCode}  // TODO: Implement proper formatting";
+    }
+
+    private static string FormatCondition(Condition condition)
+    {
+        switch (condition)
+        {
+            case StackCondition:
+                return "stack";
+            case BlockCondition blockCondition:
+                return TryFormatExpressionFromInstructions(blockCondition.Block, out var blockExpr)
+                    ? blockExpr
+                    : "stack";
+            case ExpressionCondition exprCondition:
+                return TryFormatExpressionFromInstructions(new InstructionList { exprCondition.Expression }, out var exprExpr)
+                    ? exprExpr
+                    : "stack";
+            case BinaryCondition:
+            default:
+                return "stack";
+        }
+    }
+
+    private static bool TryGetBooleanConstantCondition(Condition condition, out bool value)
+    {
+        value = false;
+
+        if (condition is BlockCondition blockCondition)
+        {
+            return TryGetBooleanConstantInstruction(blockCondition.Block, out value);
+        }
+
+        if (condition is ExpressionCondition exprCondition)
+        {
+            return TryGetBooleanConstantInstruction(new InstructionList { exprCondition.Expression }, out value);
+        }
+
+        return false;
+    }
+
+    private static bool TryGetBooleanConstantInstruction(IReadOnlyList<Instruction> instructions, out bool value)
+    {
+        value = false;
+        if (instructions.Count != 1) return false;
+        if (instructions[0] is not LoadConstantInstruction loadConst) return false;
+
+        if (loadConst.Value is bool b)
+        {
+            value = b;
+            return true;
+        }
+
+        if (loadConst.Value is int i)
+        {
+            value = i != 0;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryFormatExpressionFromInstructions(IReadOnlyList<Instruction> instructions, out string expression)
+    {
+        expression = "";
+        var stack = new Stack<string>();
+
+        foreach (var instruction in instructions)
+        {
+            switch (instruction)
+            {
+                case LoadArgInstruction loadArg:
+                    stack.Push($"arg{loadArg.Index}");
+                    break;
+                case LoadLocalInstruction loadLocal:
+                    stack.Push(loadLocal.LocalName);
+                    break;
+                case LoadFieldInstruction loadField:
+                {
+                    if (stack.Count == 0) return false;
+                    var instance = stack.Pop();
+                    stack.Push($"{instance}.{loadField.Field.Name}");
+                    break;
+                }
+                case LoadStaticFieldInstruction loadStatic:
+                    stack.Push($"{loadStatic.Field.DeclaringType.GetQualifiedName()}.{loadStatic.Field.Name}");
+                    break;
+                case LoadConstantInstruction loadConst:
+                    stack.Push(FormatConstant(loadConst.Value));
+                    break;
+                case LoadNullInstruction:
+                    stack.Push("null");
+                    break;
+                case LoadElementInstruction:
+                {
+                    if (stack.Count < 2) return false;
+                    var index = stack.Pop();
+                    var array = stack.Pop();
+                    stack.Push($"{array}[{index}]");
+                    break;
+                }
+                case UnaryNegateInstruction:
+                {
+                    if (stack.Count < 1) return false;
+                    var value = stack.Pop();
+                    stack.Push($"-{value}");
+                    break;
+                }
+                case UnaryNotInstruction:
+                {
+                    if (stack.Count < 1) return false;
+                    var value = stack.Pop();
+                    stack.Push($"!{value}");
+                    break;
+                }
+                case ArithmeticInstruction arith:
+                {
+                    if (stack.Count < 2) return false;
+                    var right = stack.Pop();
+                    var left = stack.Pop();
+                    stack.Push($"{left} {MapArithmeticOp(arith.Operation)} {right}");
+                    break;
+                }
+                case ComparisonInstruction comp:
+                {
+                    if (stack.Count < 2) return false;
+                    var right = stack.Pop();
+                    var left = stack.Pop();
+                    stack.Push($"{left} {MapComparisonOp(comp.Operation)} {right}");
+                    break;
+                }
+                case CallInstruction call:
+                {
+                    var argCount = call.Method.ParameterTypes.Count;
+                    if (stack.Count < argCount) return false;
+                    var args = new List<string>();
+                    for (int i = 0; i < argCount; i++)
+                    {
+                        args.Add(stack.Pop());
+                    }
+                    args.Reverse();
+                    stack.Push($"{call.Method.DeclaringType.GetQualifiedName()}.{call.Method.Name}({string.Join(", ", args)})");
+                    break;
+                }
+                case CallVirtualInstruction callVirt:
+                {
+                    var argCount = callVirt.Method.ParameterTypes.Count;
+                    if (stack.Count < argCount + 1) return false;
+                    var args = new List<string>();
+                    for (int i = 0; i < argCount; i++)
+                    {
+                        args.Add(stack.Pop());
+                    }
+                    args.Reverse();
+                    var instance = stack.Pop();
+                    stack.Push($"{instance}.{callVirt.Method.Name}({string.Join(", ", args)})");
+                    break;
+                }
+                case ConversionInstruction conv:
+                {
+                    if (stack.Count < 1) return false;
+                    var value = stack.Pop();
+                    stack.Push($"({conv.TargetType.GetQualifiedName()}){value}");
+                    break;
+                }
+                case IsInstanceInstruction isInst:
+                {
+                    if (stack.Count < 1) return false;
+                    var value = stack.Pop();
+                    stack.Push($"{value} is {isInst.TargetType.GetQualifiedName()}");
+                    break;
+                }
+                case DupInstruction:
+                {
+                    if (stack.Count < 1) return false;
+                    var value = stack.Peek();
+                    stack.Push(value);
+                    break;
+                }
+                case PopInstruction:
+                {
+                    if (stack.Count < 1) return false;
+                    stack.Pop();
+                    break;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        if (stack.Count == 1)
+        {
+            expression = stack.Pop();
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string MapArithmeticOp(ArithmeticOp op) => op switch
+    {
+        ArithmeticOp.Add => "+",
+        ArithmeticOp.Sub => "-",
+        ArithmeticOp.Mul => "*",
+        ArithmeticOp.Div => "/",
+        ArithmeticOp.Rem => "%",
+        ArithmeticOp.And => "&",
+        ArithmeticOp.Or => "|",
+        ArithmeticOp.Xor => "^",
+        ArithmeticOp.Shl => "<<",
+        ArithmeticOp.Shr => ">>",
+        _ => "+"
+    };
+
+    private static string MapComparisonOp(ComparisonOp op) => op switch
+    {
+        ComparisonOp.Equal => "==",
+        ComparisonOp.NotEqual => "!=",
+        ComparisonOp.Greater => ">",
+        ComparisonOp.GreaterOrEqual => ">=",
+        ComparisonOp.Less => "<",
+        ComparisonOp.LessOrEqual => "<=",
+        _ => "=="
+    };
+
+    private static string FormatConstant(object value)
+    {
+        return value switch
+        {
+            null => "null",
+            string s => $"\"{s}\"",
+            bool b => b ? "true" : "false",
+            _ => value.ToString() ?? "null"
+        };
+    }
+
+    private static string NormalizeTypeName(string typeName)
+    {
+        return typeName.EndsWith("?", StringComparison.Ordinal)
+            ? typeName[..^1]
+            : typeName;
     }
 }
 

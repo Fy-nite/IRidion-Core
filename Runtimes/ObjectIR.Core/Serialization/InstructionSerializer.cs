@@ -223,6 +223,27 @@ public sealed class InstructionSerializer
                 OpCode = "continue",
                 Operand = null
             },
+            ThrowInstruction => new InstructionData
+            {
+                OpCode = "throw",
+                Operand = null
+            },
+            TryInstruction ti => new InstructionData
+            {
+                OpCode = "try",
+                Operand = new TryOperandData
+                {
+                    TryBlock = ti.TryBlock.Select(CreateInstructionData).ToList(),
+                    CatchBlocks = ti.CatchClauses.Select(c => new CatchBlockData
+                    {
+                        ExceptionType = c.ExceptionType.GetQualifiedName(),
+                        Block = c.Body.Select(CreateInstructionData).ToList()
+                    }).ToList(),
+                    FinallyBlock = ti.FinallyBlock != null
+                        ? ti.FinallyBlock.Select(CreateInstructionData).ToList()
+                        : null
+                }
+            },
             WhileInstruction wi => new InstructionData
             {
                 OpCode = "while",
@@ -280,6 +301,11 @@ public sealed class InstructionSerializer
             {
                 Kind = "expression",
                 Expression = CreateInstructionData(ec.Expression)
+            },
+            BlockCondition bc => new ConditionData
+            {
+                Kind = "block",
+                Block = bc.Block.Select(CreateInstructionData).ToList()
             },
             _ => throw new NotSupportedException($"Condition type {condition.GetType().Name} not supported for serialization")
         };
@@ -352,6 +378,8 @@ public sealed class InstructionSerializer
             "pop" => new PopInstruction(),
             "break" => new BreakInstruction(),
             "continue" => new ContinueInstruction(),
+            "throw" => new ThrowInstruction(),
+            "try" => DeserializeTryInstruction(operand),
             "while" => DeserializeWhileInstruction(operand),
             "if" => DeserializeIfInstruction(operand),
             "ldelem" => new LoadElementInstruction(),
@@ -417,6 +445,47 @@ public sealed class InstructionSerializer
         return whileInstruction;
     }
 
+    private static TryInstruction DeserializeTryInstruction(JsonElement operand)
+    {
+        if (operand.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Try instruction operand must be an object");
+        }
+
+        var tryInstruction = new TryInstruction();
+
+        if (operand.TryGetProperty("tryBlock", out var tryElement))
+        {
+            var tryInstructions = DeserializeInstructions(tryElement);
+            tryInstruction.TryBlock.AddRange(tryInstructions);
+        }
+
+        if (operand.TryGetProperty("catchBlocks", out var catchElement) && catchElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var cb in catchElement.EnumerateArray())
+            {
+                if (cb.ValueKind != JsonValueKind.Object) continue;
+                var exceptionTypeName = cb.TryGetProperty("exceptionType", out var et) && et.ValueKind == JsonValueKind.String
+                    ? et.GetString()
+                    : "System.Exception";
+                var blockElement = cb.GetProperty("block");
+                var blockInstructions = DeserializeInstructions(blockElement);
+                var clause = new CatchClause(TypeReference.FromName(exceptionTypeName ?? "System.Exception"), "ex");
+                clause.Body.AddRange(blockInstructions);
+                tryInstruction.CatchClauses.Add(clause);
+            }
+        }
+
+        if (operand.TryGetProperty("finallyBlock", out var finallyElement) && finallyElement.ValueKind == JsonValueKind.Array)
+        {
+            var finallyInstructions = DeserializeInstructions(finallyElement);
+            tryInstruction.FinallyBlock = new InstructionList();
+            tryInstruction.FinallyBlock.AddRange(finallyInstructions);
+        }
+
+        return tryInstruction;
+    }
+
     private static IfInstruction DeserializeIfInstruction(JsonElement? operand)
     {
         if (operand == null || operand.Value.ValueKind != JsonValueKind.Object)
@@ -453,6 +522,7 @@ public sealed class InstructionSerializer
             "stack" => Condition.Stack(),
             "binary" => new BinaryCondition(ParseComparisonOp(GetString(element, "operation"))),
             "expression" => Condition.Expression(DeserializeInstruction(element.GetProperty("expression"))),
+            "block" => Condition.Block(DeserializeInstructions(element.GetProperty("block"))),
             _ => throw new NotSupportedException($"Condition kind '{kind}' not supported for deserialization")
         };
     }
@@ -551,6 +621,10 @@ public sealed class InstructionSerializer
         [JsonPropertyName("expression")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public InstructionData? Expression { get; set; }
+
+        [JsonPropertyName("block")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<InstructionData>? Block { get; set; }
     }
 
     private sealed class WhileOperandData
@@ -572,5 +646,28 @@ public sealed class InstructionSerializer
 
         [JsonPropertyName("elseBlock")]
         public List<InstructionData>? ElseBlock { get; set; }
+    }
+
+    private sealed class TryOperandData
+    {
+        [JsonPropertyName("tryBlock")]
+        public List<InstructionData> TryBlock { get; set; } = new();
+
+        [JsonPropertyName("catchBlocks")]
+        public List<CatchBlockData> CatchBlocks { get; set; } = new();
+
+        [JsonPropertyName("finallyBlock")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<InstructionData>? FinallyBlock { get; set; }
+    }
+
+    private sealed class CatchBlockData
+    {
+        [JsonPropertyName("exceptionType")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ExceptionType { get; set; }
+
+        [JsonPropertyName("block")]
+        public List<InstructionData> Block { get; set; } = new();
     }
 }

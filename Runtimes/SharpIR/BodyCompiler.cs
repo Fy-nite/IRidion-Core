@@ -16,14 +16,18 @@ namespace SharpIR
         private readonly InstructionList _target;
         private readonly List<string>? _expectedOutputs;
         private readonly Dictionary<string, int> _argIndices = new();
+        private readonly int _loopNesting;
+        private readonly int _switchNesting;
 
-        public BodyCompiler(SemanticModel semanticModel, IMethodSymbol methodSymbol, MethodDefinition method, List<string>? expectedOutputs = null, InstructionList? target = null)
+        public BodyCompiler(SemanticModel semanticModel, IMethodSymbol methodSymbol, MethodDefinition method, List<string>? expectedOutputs = null, InstructionList? target = null, int loopNesting = 0, int switchNesting = 0)
         {
             _semanticModel = semanticModel;
             _methodSymbol = methodSymbol;
             _method = method;
             _expectedOutputs = expectedOutputs;
             _target = target ?? method.Instructions;
+            _loopNesting = loopNesting;
+            _switchNesting = switchNesting;
 
             // Build argument indices
             int idx = 0;
@@ -76,7 +80,7 @@ namespace SharpIR
                             if (variable.Initializer != null)
                             {
                                 var initSymbol = _semanticModel.GetTypeInfo(variable.Initializer.Value).Type;
-                                typeRef = Helpers.MapType(initSymbol);
+                                typeRef = initSymbol != null ? Helpers.MapType(initSymbol) : TypeReference.FromName("object");
                             }
                             else
                             {
@@ -86,7 +90,7 @@ namespace SharpIR
                         else
                         {
                             var typeSymbol = _semanticModel.GetTypeInfo(varType).Type;
-                            typeRef = Helpers.MapType(typeSymbol);
+                            typeRef = typeSymbol != null ? Helpers.MapType(typeSymbol) : TypeReference.FromName("object");
                         }
                         _method.DefineLocal(variable.Identifier.Text, typeRef);
                         if (variable.Initializer != null)
@@ -104,12 +108,12 @@ namespace SharpIR
                     // then block
                     if (ifStmt.Statement is BlockSyntax thenBlock)
                     {
-                        var thenCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ThenBlock);
+                        var thenCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ThenBlock, _loopNesting, _switchNesting);
                         thenCompiler.Compile(thenBlock);
                     }
                     else if (ifStmt.Statement != null)
                     {
-                        var thenCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ThenBlock);
+                        var thenCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ThenBlock, _loopNesting, _switchNesting);
                         thenCompiler.CompileStatement(ifStmt.Statement);
                     }
                     // else block
@@ -118,28 +122,27 @@ namespace SharpIR
                         if (ifStmt.Else.Statement is BlockSyntax elseBlock)
                         {
                             ifInst.ElseBlock = new InstructionList();
-                            var elseCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ElseBlock);
+                            var elseCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ElseBlock, _loopNesting, _switchNesting);
                             elseCompiler.Compile(elseBlock);
                         }
                         else if (ifStmt.Else.Statement != null)
                         {
                             ifInst.ElseBlock = new InstructionList();
-                            var elseCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ElseBlock);
+                            var elseCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, ifInst.ElseBlock, _loopNesting, _switchNesting);
                             elseCompiler.CompileStatement(ifStmt.Else.Statement);
                         }
                     }
                     _target.Add(ifInst);
                     break;
                 case WhileStatementSyntax whileStmt:
-                    // handle simple binary comparison case specially
-                    if (whileStmt.Condition is BinaryExpressionSyntax be && Helpers.IsComparisonOperator(be.OperatorToken.Kind()))
                     {
-                        // compile left and right as setup instructions
-                        CompileExpression(be.Left);
-                        CompileExpression(be.Right);
-                        var compOp = Helpers.MapComparisonOperator(be.OperatorToken.Kind());
-                        var whileInst = new WhileInstruction(Condition.Binary(compOp));
-                        var bodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, whileInst.Body);
+                        // Compile condition into a block so it is re-evaluated each iteration
+                        var conditionBlock = new InstructionList();
+                        var conditionCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, conditionBlock, _loopNesting, _switchNesting);
+                        conditionCompiler.CompileExpression(whileStmt.Condition);
+
+                        var whileInst = new WhileInstruction(Condition.Block(conditionBlock));
+                        var bodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, whileInst.Body, _loopNesting + 1, _switchNesting);
                         if (whileStmt.Statement is BlockSyntax bodyBlock)
                         {
                             bodyCompiler.Compile(bodyBlock);
@@ -151,58 +154,53 @@ namespace SharpIR
                         }
                         _target.Add(whileInst);
                     }
-                    else
-                    {
-                        // fallback: compile condition, use stack condition
-                        CompileExpression(whileStmt.Condition);
-                        var wi = new WhileInstruction(Condition.Stack());
-                        var bodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, wi.Body);
-                        if (whileStmt.Statement is BlockSyntax bodyBlock)
-                        {
-                            bodyCompiler.Compile(bodyBlock);
-                        }
-                        else if (whileStmt.Statement != null)
-                        {
-                            bodyCompiler.CompileStatement(whileStmt.Statement);
-                        }
-                        _target.Add(wi);
-                    }
                     break;
                 case ForStatementSyntax forStmt:
                     // emit initializers
-                    foreach (var init in forStmt.Declaration?.Variables ?? Enumerable.Empty<VariableDeclaratorSyntax>())
+                    if (forStmt.Declaration != null)
                     {
-                        var declaredType = forStmt.Declaration.Type;
-                        TypeReference vtype;
-                        if (declaredType is IdentifierNameSyntax id && id.Identifier.Text == "var")
+                        foreach (var init in forStmt.Declaration.Variables)
                         {
+                            var declaredType = forStmt.Declaration.Type;
+                            TypeReference vtype;
+                            if (declaredType is IdentifierNameSyntax id && id.Identifier.Text == "var")
+                            {
+                                if (init.Initializer != null)
+                                {
+                                    var initType = _semanticModel.GetTypeInfo(init.Initializer.Value).Type;
+                                    vtype = initType != null ? Helpers.MapType(initType) : TypeReference.FromName("object");
+                                }
+                                else vtype = TypeReference.FromName("object");
+                            }
+                            else
+                            {
+                                var declType = _semanticModel.GetTypeInfo(declaredType).Type;
+                                vtype = declType != null ? Helpers.MapType(declType) : TypeReference.FromName("object");
+                            }
+                            _method.DefineLocal(init.Identifier.Text, vtype);
                             if (init.Initializer != null)
                             {
-                                vtype = Helpers.MapType(_semanticModel.GetTypeInfo(init.Initializer.Value).Type);
+                                CompileExpression(init.Initializer.Value);
+                                _target.Add(new StoreLocalInstruction(init.Identifier.Text));
                             }
-                            else vtype = TypeReference.FromName("object");
+                        }
+                    }
+                    // Condition: compile into a block so it is re-evaluated each iteration
+                    {
+                        var conditionBlock = new InstructionList();
+                        var conditionCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, conditionBlock, _loopNesting, _switchNesting);
+                        if (forStmt.Condition != null)
+                        {
+                            conditionCompiler.CompileExpression(forStmt.Condition);
                         }
                         else
                         {
-                            vtype = Helpers.MapType(_semanticModel.GetTypeInfo(declaredType).Type);
+                            conditionBlock.Add(new LoadConstantInstruction(true, TypeReference.Bool));
                         }
-                        _method.DefineLocal(init.Identifier.Text, vtype);
-                        if (init.Initializer != null)
-                        {
-                            CompileExpression(init.Initializer.Value);
-                            _target.Add(new StoreLocalInstruction(init.Identifier.Text));
-                        }
-                    }
-                    // Condition: simple binary case only
-                    if (forStmt.Condition is BinaryExpressionSyntax fbe && Helpers.IsComparisonOperator(fbe.OperatorToken.Kind()))
-                    {
-                        // Emit left and right as setup
-                        CompileExpression(fbe.Left);
-                        CompileExpression(fbe.Right);
-                        var comp = Helpers.MapComparisonOperator(fbe.OperatorToken.Kind());
-                        var forWhile = new WhileInstruction(Condition.Binary(comp));
+
+                        var forWhile = new WhileInstruction(Condition.Block(conditionBlock));
                         // Body: compile original body then increments
-                        var bodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, forWhile.Body);
+                        var bodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, forWhile.Body, _loopNesting + 1, _switchNesting);
                         if (forStmt.Statement is BlockSyntax fbody)
                         {
                             bodyCompiler.Compile(fbody);
@@ -219,11 +217,189 @@ namespace SharpIR
                         _target.Add(forWhile);
                     }
                     break;
+                case DoStatementSyntax doStmt:
+                    {
+                        // Compile body once, then reuse for while body to avoid redefining locals
+                        var bodyList = new InstructionList();
+                        var preBodyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, bodyList, _loopNesting + 1, _switchNesting);
+                        if (doStmt.Statement is BlockSyntax doBlock)
+                        {
+                            preBodyCompiler.Compile(doBlock);
+                        }
+                        else if (doStmt.Statement != null)
+                        {
+                            preBodyCompiler.CompileStatement(doStmt.Statement);
+                        }
+
+                        // Emit body once
+                        _target.AddRange(bodyList);
+
+                        // Condition block for subsequent iterations
+                        var conditionBlock = new InstructionList();
+                        var conditionCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, conditionBlock, _loopNesting, _switchNesting);
+                        conditionCompiler.CompileExpression(doStmt.Condition);
+
+                        var whileInst = new WhileInstruction(Condition.Block(conditionBlock));
+                        whileInst.Body.AddRange(bodyList);
+                        _target.Add(whileInst);
+                    }
+                    break;
+                case ThrowStatementSyntax throwStmt:
+                    if (throwStmt.Expression != null)
+                    {
+                        CompileExpression(throwStmt.Expression);
+                    }
+                    else
+                    {
+                        _target.Add(new LoadNullInstruction());
+                    }
+                    _target.Add(new ThrowInstruction());
+                    break;
+                case TryStatementSyntax tryStmt:
+                    {
+                        var tryInst = new TryInstruction();
+
+                        // Try block
+                        var tryCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, tryInst.TryBlock, _loopNesting, _switchNesting);
+                        tryCompiler.Compile(tryStmt.Block);
+
+                        // Catch clauses
+                        foreach (var catchClause in tryStmt.Catches)
+                        {
+                            TypeReference exceptionType = TypeReference.FromName("System.Exception");
+                            string varName = "ex";
+
+                            if (catchClause.Declaration != null)
+                            {
+                                varName = string.IsNullOrWhiteSpace(catchClause.Declaration.Identifier.Text)
+                                    ? varName
+                                    : catchClause.Declaration.Identifier.Text;
+
+                                if (catchClause.Declaration.Type != null)
+                                {
+                                    var catchType = _semanticModel.GetTypeInfo(catchClause.Declaration.Type).Type;
+                                    if (catchType != null)
+                                    {
+                                        exceptionType = Helpers.MapType(catchType);
+                                    }
+                                }
+                            }
+
+                            var cc = new CatchClause(exceptionType, varName);
+                            var catchCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, cc.Body, _loopNesting, _switchNesting);
+
+                            // If catch has a declared variable, store the exception from stack into it
+                            if (catchClause.Declaration != null && !string.IsNullOrWhiteSpace(varName))
+                            {
+                                _method.DefineLocal(varName, exceptionType);
+                                cc.Body.Add(new StoreLocalInstruction(varName));
+                            }
+
+                            catchCompiler.Compile(catchClause.Block);
+                            tryInst.CatchClauses.Add(cc);
+                        }
+
+                        // Finally block
+                        if (tryStmt.Finally != null)
+                        {
+                            tryInst.FinallyBlock = new InstructionList();
+                            var finallyCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, tryInst.FinallyBlock, _loopNesting, _switchNesting);
+                            finallyCompiler.Compile(tryStmt.Finally.Block);
+                        }
+
+                        _target.Add(tryInst);
+                    }
+                    break;
+                case SwitchStatementSyntax switchStmt:
+                    {
+                        // Evaluate switch expression once into a temp local
+                        var tempName = GetUniqueLocalName("__switch");
+                        var switchTypeSymbol = _semanticModel.GetTypeInfo(switchStmt.Expression).Type;
+                        var switchType = switchTypeSymbol != null ? Helpers.MapType(switchTypeSymbol) : TypeReference.FromName("object");
+                        _method.DefineLocal(tempName, switchType);
+                        CompileExpression(switchStmt.Expression);
+                        _target.Add(new StoreLocalInstruction(tempName));
+
+                        var cases = new List<(InstructionList condition, InstructionList body)>();
+                        InstructionList? defaultBody = null;
+
+                        foreach (var section in switchStmt.Sections)
+                        {
+                            var sectionBody = new InstructionList();
+                            var sectionCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, sectionBody, _loopNesting, _switchNesting + 1);
+                            foreach (var stmt in section.Statements)
+                            {
+                                sectionCompiler.CompileStatement(stmt);
+                            }
+
+                            foreach (var label in section.Labels)
+                            {
+                                if (label is DefaultSwitchLabelSyntax)
+                                {
+                                    defaultBody = sectionBody;
+                                    continue;
+                                }
+
+                                if (label is CaseSwitchLabelSyntax caseLabel)
+                                {
+                                    var conditionBlock = new InstructionList();
+                                    conditionBlock.Add(new LoadLocalInstruction(tempName));
+                                    var valueCompiler = new BodyCompiler(_semanticModel, _methodSymbol, _method, _expectedOutputs, conditionBlock, _loopNesting, _switchNesting);
+                                    valueCompiler.CompileExpression(caseLabel.Value);
+                                    conditionBlock.Add(new ComparisonInstruction(ComparisonOp.Equal));
+                                    cases.Add((conditionBlock, sectionBody));
+                                }
+                            }
+                        }
+
+                        if (cases.Count == 0)
+                        {
+                            if (defaultBody != null)
+                            {
+                                _target.AddRange(defaultBody);
+                            }
+                            break;
+                        }
+
+                        IfInstruction? rootIf = null;
+                        IfInstruction? currentIf = null;
+                        foreach (var entry in cases)
+                        {
+                            var caseIf = new IfInstruction(Condition.Block(entry.condition));
+                            caseIf.ThenBlock.AddRange(entry.body);
+                            if (rootIf == null)
+                            {
+                                rootIf = caseIf;
+                            }
+                            else
+                            {
+                                currentIf!.ElseBlock = new InstructionList { caseIf };
+                            }
+                            currentIf = caseIf;
+                        }
+
+                        if (currentIf != null && defaultBody != null)
+                        {
+                            currentIf.ElseBlock = defaultBody;
+                        }
+
+                        if (rootIf != null)
+                        {
+                            _target.Add(rootIf);
+                        }
+                    }
+                    break;
                 case BreakStatementSyntax brk:
-                    _target.Add(new BreakInstruction());
+                    if (_loopNesting > 0)
+                    {
+                        _target.Add(new BreakInstruction());
+                    }
                     break;
                 case ContinueStatementSyntax cont:
-                    _target.Add(new ContinueInstruction());
+                    if (_loopNesting > 0)
+                    {
+                        _target.Add(new ContinueInstruction());
+                    }
                     break;
                 // TODO: Add more statement types
                 default:
@@ -246,11 +422,11 @@ namespace SharpIR
             {
                 case BinaryExpressionSyntax binary:
                     // arithmetic
-                    if (binary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.PlusToken ||
-                        binary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.MinusToken ||
-                        binary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.AsteriskToken ||
-                        binary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.SlashToken ||
-                        binary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.PercentToken)
+                    if (binary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PlusToken) ||
+                        binary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.MinusToken) ||
+                        binary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.AsteriskToken) ||
+                        binary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.SlashToken) ||
+                        binary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PercentToken))
                     {
                         CompileExpression(binary.Left);
                         CompileExpression(binary.Right);
@@ -274,12 +450,12 @@ namespace SharpIR
                     break;
                 case PrefixUnaryExpressionSyntax unary:
                     // unary minus or not
-                    if (unary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.MinusToken)
+                    if (unary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.MinusToken))
                     {
                         CompileExpression(unary.Operand);
                         _target.Add(new UnaryNegateInstruction());
                     }
-                    else if (unary.OperatorToken.Kind() == Microsoft.CodeAnalysis.CSharp.SyntaxKind.ExclamationToken)
+                    else if (unary.OperatorToken.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.ExclamationToken))
                     {
                         CompileExpression(unary.Operand);
                         _target.Add(new UnaryNotInstruction());
@@ -438,7 +614,7 @@ namespace SharpIR
                 }
                 // Emit call
                 var methodRef = new MethodReference(
-                    Helpers.MapType(symbol.ContainingType),
+                    Helpers.MapType(symbol.ContainingType ?? symbol.ReturnType),
                     symbol.Name,
                     Helpers.MapType(symbol.ReturnType),
                     symbol.Parameters.Select(p => Helpers.MapType(p.Type)).ToList()
@@ -457,8 +633,16 @@ namespace SharpIR
         private void CompileLiteral(LiteralExpressionSyntax literal)
         {
             var value = _semanticModel.GetConstantValue(literal).Value;
-            var type = Helpers.MapType(_semanticModel.GetTypeInfo(literal).Type);
-            _target.Add(new LoadConstantInstruction(value, type));
+            var typeSymbol = _semanticModel.GetTypeInfo(literal).Type;
+            var type = typeSymbol != null ? Helpers.MapType(typeSymbol) : TypeReference.FromName("object");
+            if (value == null)
+            {
+                _target.Add(new LoadNullInstruction());
+            }
+            else
+            {
+                _target.Add(new LoadConstantInstruction(value, type));
+            }
         }
 
         private void CompileIdentifier(IdentifierNameSyntax identifier)
@@ -713,6 +897,18 @@ namespace SharpIR
                     target.Add(new CallVirtualInstruction(methodRef));
                 }
             }
+        }
+
+        private string GetUniqueLocalName(string prefix)
+        {
+            var name = prefix;
+            var index = 0;
+            while (_method.Locals.Any(l => l.Name == name))
+            {
+                index++;
+                name = $"{prefix}{index}";
+            }
+            return name;
         }
     }
 }
