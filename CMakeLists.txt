@@ -73,7 +73,12 @@ target_compile_options(objectir_runtime PRIVATE
 set_target_properties(objectir_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Link nlohmann/json
-target_link_libraries(objectir_runtime PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(objectir_runtime PRIVATE nlohmann_json::nlohmann_json)
+
+# Expose nlohmann_json include directories to consumers without exporting its target
+target_include_directories(objectir_runtime PUBLIC
+    $<BUILD_INTERFACE:$<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>>
+)
 
 if(UNIX AND NOT APPLE AND NOT WIN32 AND NOT MINGW AND NOT MSYS)
     target_link_libraries(objectir_runtime PRIVATE dl)
