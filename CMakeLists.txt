@@ -116,6 +116,18 @@ option(BUILD_GUI "Build ObjectIR GUI frontend with Qt" OFF)
 option(QT_FORCE_NO_VULKAN "Temporarily unset VULKAN_SDK when finding Qt to avoid FindVulkan errors (MSYS/Mingw)" ON)
 option(QT_PREFER_QT5 "Prefer Qt5 over Qt6 when both are available" OFF)
 
+# When cross-compiling we usually don't have a target Qt available on the host.
+# If cross-compiling and no Qt search hints are provided, disable GUI to avoid
+# CMake finding a host Qt installation that cannot be used for the target.
+if(CMAKE_CROSSCOMPILING AND BUILD_GUI)
+    if(NOT DEFINED Qt_DIR AND NOT DEFINED CMAKE_PREFIX_PATH)
+        message(WARNING "Cross-compiling detected and no Qt target path provided; disabling BUILD_GUI.")
+        set(BUILD_GUI OFF CACHE BOOL "Build ObjectIR GUI frontend with Qt" FORCE)
+    else()
+        message(STATUS "Cross-compiling with Qt search paths provided; CMake will attempt to find target Qt.")
+    endif()
+endif()
+
 # Build GUI frontend if enabled and Qt is available
 if(BUILD_GUI)
     # Find Qt only when GUI is requested
