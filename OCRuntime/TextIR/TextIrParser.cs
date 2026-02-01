@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using OCRuntime.IR;
 
 namespace OCRuntime.TextIR;
@@ -17,6 +18,12 @@ internal static class TextIrParser
     {
         private readonly IReadOnlyList<TextIrToken> _tokens;
         private int _current;
+
+        // Options to enable reflection-based serialization where needed.
+        private static readonly JsonSerializerOptions s_jsonOptions = new JsonSerializerOptions
+        {
+            TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+        };
 
         public Parser(IReadOnlyList<TextIrToken> tokens)
         {
@@ -60,8 +67,8 @@ internal static class TextIrParser
             {
                 name = moduleName,
                 version = version,
-                metadata = JsonSerializer.SerializeToElement(new { }),
-                functions = JsonSerializer.SerializeToElement(Array.Empty<object>()),
+                metadata = JsonSerializer.SerializeToElement(new { }, s_jsonOptions),
+                functions = JsonSerializer.SerializeToElement(Array.Empty<object>(), s_jsonOptions),
                 types = types.ToArray()
             };
         }
@@ -158,9 +165,9 @@ internal static class TextIrParser
                 fields = fields.ToArray(),
                 methods = methods.ToArray(),
                 interfaces = interfaces.ToArray(),
-                baseInterfaces = JsonSerializer.SerializeToElement(Array.Empty<object>()),
-                genericParameters = JsonSerializer.SerializeToElement(Array.Empty<object>()),
-                properties = JsonSerializer.SerializeToElement(Array.Empty<object>())
+                baseInterfaces = JsonSerializer.SerializeToElement(Array.Empty<object>(), s_jsonOptions),
+                genericParameters = JsonSerializer.SerializeToElement(Array.Empty<object>(), s_jsonOptions),
+                properties = JsonSerializer.SerializeToElement(Array.Empty<object>(), s_jsonOptions)
             };
         }
 
@@ -359,7 +366,7 @@ internal static class TextIrParser
             return new InstructionDto
             {
                 opCode = "if",
-                operand = JsonSerializer.SerializeToElement(operand)
+                operand = JsonSerializer.SerializeToElement(operand, s_jsonOptions)
             };
         }
 
@@ -374,7 +381,7 @@ internal static class TextIrParser
             return new InstructionDto
             {
                 opCode = "while",
-                operand = JsonSerializer.SerializeToElement(new { condition, body })
+                operand = JsonSerializer.SerializeToElement(new { condition, body }, s_jsonOptions)
             };
         }
 
@@ -563,7 +570,7 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = op,
-                    operand = JsonSerializer.SerializeToElement(new { localName = args[0].Value })
+                    operand = JsonSerializer.SerializeToElement(new { localName = args[0].Value }, s_jsonOptions)
                 };
             }
 
@@ -572,7 +579,7 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = "ldstr",
-                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value })
+                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value }, s_jsonOptions)
                 };
             }
 
@@ -582,7 +589,7 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = "ldc",
-                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value, type = "int64" })
+                    operand = JsonSerializer.SerializeToElement(new { value = args[0].Value, type = "int64" }, s_jsonOptions)
                 };
             }
 
@@ -595,7 +602,7 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = op,
-                    operand = JsonSerializer.SerializeToElement(new { field })
+                    operand = JsonSerializer.SerializeToElement(new { field }, s_jsonOptions)
                 };
             }
 
@@ -605,7 +612,7 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = op,
-                    operand = JsonSerializer.SerializeToElement(new { method })
+                    operand = JsonSerializer.SerializeToElement(new { method }, s_jsonOptions)
                 };
             }
 
@@ -621,14 +628,14 @@ internal static class TextIrParser
                 return new InstructionDto
                 {
                     opCode = "newobj",
-                    operand = JsonSerializer.SerializeToElement(new { type = typeName })
+                    operand = JsonSerializer.SerializeToElement(new { type = typeName }, s_jsonOptions)
                 };
             }
 
             // Default: raw args as strings
-            return args.Count == 0
-                ? new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { }) }
-                : new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { arguments = args.Select(a => a.Value).ToArray() }) };
+                return args.Count == 0
+                ? new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { }, s_jsonOptions) }
+                : new InstructionDto { opCode = op, operand = JsonSerializer.SerializeToElement(new { arguments = args.Select(a => a.Value).ToArray() }, s_jsonOptions) };
         }
 
         private static CallTargetDto ParseCallTarget(List<TextIrToken> args)

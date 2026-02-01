@@ -7,7 +7,15 @@ using ObjectIR.Core.IR;
 
 namespace SharpIR
 {
-    internal class CodeWalker : CSharpSyntaxWalker
+    /// <summary>
+    /// Traverses C# syntax trees and builds type and member definitions for a target module based on semantic analysis.
+    /// </summary>
+    /// <remarks>CodeWalker extends CSharpSyntaxWalker to visit class, interface, struct, method, property,
+    /// and field declarations in a C# syntax tree. It uses Roslyn's SemanticModel to resolve symbols and populates the
+    /// provided Module with corresponding type and member definitions. This class is typically used in scenarios where
+    /// source code needs to be analyzed and converted into a custom intermediate representation. Thread safety is not
+    /// guaranteed; use a separate instance per analysis if needed.</remarks>
+    public class CodeWalker : CSharpSyntaxWalker
     {
         private readonly SemanticModel _semanticModel;
         private readonly Module _module;

@@ -42,6 +42,8 @@ public sealed class IRRuntime
     public IRRuntime(string input, InputFormat format = InputFormat.Auto, bool enableReflectionNativeMethods = false)
     {
         EnableReflectionNativeMethods = enableReflectionNativeMethods;
+        if (input != null)
+        {
 
         _program = format switch
         {
@@ -50,6 +52,8 @@ public sealed class IRRuntime
             _ => AutoParse(input)
         };
         _typeMap = BuildTypeMap();
+        }
+      
 
         _nativeMethods["System.Console.WriteLine(string)"] = (instance, args) =>
         {
@@ -83,6 +87,8 @@ public sealed class IRRuntime
             Console.Beep();
             return null;
         };
+
+
         
         _nativeMethods["System.Object.ToString()"] = (instance, args) => instance?.ToString();
         _nativeMethods["System.Object.GetType()"] = (instance, args) => instance?.GetType();
@@ -113,8 +119,20 @@ public sealed class IRRuntime
 
     public void Run()
     {
+        if (_program == null)
+            throw new InvalidOperationException("No program loaded into IRRuntime");
+
         Console.WriteLine("Running Module: " + _program.name);
-        var programType = _program.types.SingleOrDefault(t => t.name == "Program");
+        TypeDto programType = null;
+        try
+        {
+
+            programType = _program.types.SingleOrDefault(t => t.name == "Program");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Error finding Program type in module", ex);
+        }
         if (programType == null)
             throw new InvalidOperationException("No Program type found in module");
         //// log the program methods
