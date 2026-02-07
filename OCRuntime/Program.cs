@@ -11,7 +11,29 @@ namespace OCRuntime
     {
         public static void Main(string[] args)
         {
-            RuntimeGapSmokeTests.RunAll();
+            Console.WriteLine("Welcome to the ObjectIR Runtime!");
+            // parse the command line arguments
+            if (args.Length == 0)
+            {
+                Console.WriteLine("Usage: oir <path to ObjectIR file>");
+                return;
+            }
+            string path = args[0];
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"Error: File '{path}' does not exist.");
+                return;
+            }
+            try
+            {
+                // load the ObjectIR file
+                var ir  = new IRRuntime(File.ReadAllText(path));
+                ir.Run();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
         }
     }
 }
