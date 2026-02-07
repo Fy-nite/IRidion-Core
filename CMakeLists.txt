@@ -112,9 +112,9 @@ if(BUILD_STATIC_RUNTIME)
 endif()
 
 # Option to build GUI frontend
+
 option(BUILD_GUI "Build ObjectIR GUI frontend with Qt" OFF)
 option(QT_FORCE_NO_VULKAN "Temporarily unset VULKAN_SDK when finding Qt to avoid FindVulkan errors (MSYS/Mingw)" ON)
-option(QT_PREFER_QT5 "Prefer Qt5 over Qt6 when both are available" OFF)
 
 # When cross-compiling we usually don't have a target Qt available on the host.
 # If cross-compiling and no Qt search hints are provided, disable GUI to avoid
@@ -130,7 +130,7 @@ endif()
 
 # Build GUI frontend if enabled and Qt is available
 if(BUILD_GUI)
-    # Find Qt only when GUI is requested
+    # Find Qt6 only; this project now requires Qt6 for the GUI frontend.
     set(Qt_FOUND FALSE)
 
     # Optionally unset VULKAN_SDK on MSYS/Mingw to avoid Qt6 FindVulkan probing errors
@@ -141,34 +141,11 @@ if(BUILD_GUI)
       endif()
     endif()
 
-    if(QT_PREFER_QT5)
-        find_package(Qt5 COMPONENTS Widgets Core QUIET)
-        if(Qt5_FOUND)
-            set(Qt_LIBS Qt5::Widgets Qt5::Core)
-            set(Qt_VERSION_MAJOR 5)
-            set(Qt_FOUND TRUE)
-        else()
-            find_package(Qt6 COMPONENTS Widgets Core QUIET)
-            if(Qt6_FOUND)
-                set(Qt_LIBS Qt6::Widgets Qt6::Core)
-                set(Qt_VERSION_MAJOR 6)
-                set(Qt_FOUND TRUE)
-            endif()
-        endif()
-    else()
-        find_package(Qt6 COMPONENTS Widgets Core QUIET)
-        if(Qt6_FOUND)
-            set(Qt_LIBS Qt6::Widgets Qt6::Core)
-            set(Qt_VERSION_MAJOR 6)
-            set(Qt_FOUND TRUE)
-        else()
-            find_package(Qt5 COMPONENTS Widgets Core QUIET)
-            if(Qt5_FOUND)
-                set(Qt_LIBS Qt5::Widgets Qt5::Core)
-                set(Qt_VERSION_MAJOR 5)
-                set(Qt_FOUND TRUE)
-            endif()
-        endif()
+    find_package(Qt6 COMPONENTS Widgets Core QUIET)
+    if(Qt6_FOUND)
+        set(Qt_LIBS Qt6::Widgets Qt6::Core)
+        set(Qt_VERSION_MAJOR 6)
+        set(Qt_FOUND TRUE)
     endif()
 
     if(Qt_FOUND)
@@ -178,9 +155,9 @@ if(BUILD_GUI)
         add_executable(objectir_gui src/gui_frontend.cpp)
         target_link_libraries(objectir_gui PRIVATE objectir_runtime ${Qt_LIBS})
         target_include_directories(objectir_gui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        message(STATUS "ObjectIR GUI enabled (using Qt${Qt_VERSION_MAJOR})")
+        message(STATUS "ObjectIR GUI enabled (using Qt6)")
     else()
-        message(WARNING "BUILD_GUI=ON but Qt6 or Qt5 not found. GUI will not be built.")
+        message(WARNING "BUILD_GUI=ON but Qt6 not found. GUI will not be built.")
     endif()
 endif()
 

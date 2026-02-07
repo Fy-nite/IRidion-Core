@@ -52,14 +52,14 @@ Value Console_WriteLine_String(ObjectRef thisPtr, const std::vector<Value>& args
     if (args.size() >= 1 && args[0].IsString()) {
         vm->WriteOutput(args[0].AsString() + "\n");
     }
-    return Value();
+    return args[0].IsString() ? args[0] : Value();
 }
 
 Value Console_WriteLine_Int32(ObjectRef thisPtr, const std::vector<Value>& args, VirtualMachine* vm) {
     if (args.size() >= 1 && args[0].IsInt32()) {
         vm->WriteOutput(std::to_string(args[0].AsInt32()) + "\n");
     }
-    return Value();
+    return args[0].IsInt32() ? args[0] : Value();
 }
 
 Value Console_WriteLine_Int64(ObjectRef thisPtr, const std::vector<Value>& args, VirtualMachine* vm) {

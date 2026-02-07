@@ -1,0 +1,500 @@
+\documentclass[11pt,a4paper]{article}
+
+% --------------------------------------------------
+% Packages
+% --------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{booktabs}
+
+
+% --------------------------------------------------
+% Page setup
+% --------------------------------------------------
+\geometry{margin=1in}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{ObjectIR Language Specification}
+\rhead{\leftmark}
+\cfoot{\thepage}
+
+% Listings style
+\lstset{
+	backgroundcolor=\color{backcolour},
+	commentstyle=\color{green},
+	keywordstyle=\color{blue},
+	numberstyle=\tiny\color{gray},
+	stringstyle=\color{red},
+	basicstyle=\ttfamily\footnotesize,
+	breakatwhitespace=false,
+	breaklines=true,
+	captionpos=b,
+	keepspaces=true,
+	numbers=left,
+	numbersep=5pt,
+	showspaces=false,
+	showstringspaces=false,
+	showtabs=false,
+	tabsize=2
+}
+
+\lstdefinelanguage{ObjectIR}
+ {morekeywords={class, module, version, ldstr, call, ret, add,sub,mul,div,void,string,int32,int16,int64,float32,double,bool},
+	 sensitive=false,
+	 morecomment=[l]{//},
+	 morecomment=[s]{/*}{*/},
+	 morestring=[b]",
+	 }
+
+% --------------------------------------------------
+% Colors
+% --------------------------------------------------
+\definecolor{oirblue}{HTML}{3A6EA5}
+\definecolor{oirgray}{HTML}{444444}
+\definecolor{opcodebg}{HTML}{F5F7FA}
+
+% --------------------------------------------------
+% Section styling
+% --------------------------------------------------
+\titleformat{\section}
+{\Large\bfseries\color{oirblue}}
+{\thesection}{1em}{}
+
+\titleformat{\subsection}
+{\large\bfseries\color{oirgray}}
+{\thesubsection}{1em}{}
+
+% --------------------------------------------------
+% Listings
+% --------------------------------------------------
+\lstset{
+	basicstyle=\ttfamily\small,
+	backgroundcolor=\color{opcodebg},
+	frame=single,
+	columns=fullflexible,
+	keepspaces=true
+}
+
+% --------------------------------------------------
+% Opcode definition block
+% --------------------------------------------------
+\newcommand{\opcode}[6]{
+	\subsection{#1}
+	\begin{tikzpicture}
+		\node[
+		draw,
+		rounded corners,
+		fill=opcodebg,
+		inner sep=10pt,
+		text width=\linewidth-20pt
+		] {
+			\textbf{Mnemonic:} \texttt{#2}\\
+			\textbf{Operands:} #3\\
+			\textbf{Category:} #4\\
+			\textbf{Stack Effect:} \texttt{#5}\\[0.5em]
+			#6
+		};
+	\end{tikzpicture}
+}
+
+% --------------------------------------------------
+% Document
+% --------------------------------------------------
+\begin{document}
+	
+	% --------------------------------------------------
+	% Title Page
+	% --------------------------------------------------
+	\begin{titlepage}
+		\centering
+		\vspace*{3cm}
+		{\Huge\bfseries ObjectIR Language Specification}\\[0.5cm]
+		{\Large A portable, stack-based intermediate representation}
+		\vfill
+		Version 1.0\\
+		\today
+		\vfill
+	\end{titlepage}
+	
+	\tableofcontents
+	\newpage
+	
+	% --------------------------------------------------
+	% Introduction
+	% --------------------------------------------------
+	\section{Introduction}
+	ObjectIR is a portable, stack-based intermediate representation designed for execution, analysis, and compilation across multiple runtimes. It emphasizes explicit control flow, verifiable semantics, and strong tooling support.
+	
+	\section{Design Goals}
+	\begin{itemize}
+		\item Platform-agnostic execution
+		\item Explicit and deterministic semantics
+		\item Verifiable stack discipline
+		\item Friendly to JIT, AOT, and interpreter backends
+	\end{itemize}
+	
+	% --------------------------------------------------
+	% Execution Model
+	% --------------------------------------------------
+	\section{Execution Model}
+	
+	\subsection{Evaluation Stack}
+	ObjectIR uses an implicit evaluation stack. Most instructions consume zero or more values from the stack and may push results back onto it.
+	
+	\subsection{Arguments and Locals}
+	Arguments and local variables are addressed by identifier. Instance methods implicitly receive a \texttt{this} argument.
+	
+	% --------------------------------------------------
+	% Stack Discipline and Verification
+	% --------------------------------------------------
+	\section{Stack Discipline and Verification}
+	
+	This section defines mandatory rules that all valid ObjectIR programs must satisfy. These rules enable static verification and predictable execution.
+	
+	\subsection{Stack Balance Rules}
+	\begin{itemize}
+		\item The evaluation stack is empty at method entry.
+		\item At each \texttt{ret} instruction:
+		\begin{itemize}
+			\item \texttt{void} methods must leave the stack empty.
+			\item Non-void methods must leave exactly one value matching the declared return type.
+		\end{itemize}
+		\item No instruction may consume more stack values than are present.
+	\end{itemize}
+	
+	\subsection{Control Flow Merge Rules}
+	At any control-flow merge point (e.g. end of \texttt{if}, loop headers):
+	\begin{itemize}
+		\item All incoming paths must have identical stack height.
+		\item Stack value types must match exactly or be verifier-compatible.
+	\end{itemize}
+	
+	\subsection{Type Safety}
+	\begin{itemize}
+		\item Stack operations are fully type-checked.
+		\item Arithmetic instructions require compatible numeric types.
+		\item Method calls must match the exact target signature.
+		\item Field, local, and argument accesses must reference declared symbols.
+	\end{itemize}
+	
+	\subsection{Initialization Rules}
+	\begin{itemize}
+		\item Local variables must be assigned before use.
+		\item Fields must be initialized before being read.
+		\item Constructors are responsible for establishing object invariants.
+	\end{itemize}
+	
+	\subsection{Undefined Behavior}
+	Programs that violate verifier rules have undefined behavior. Backends may reject invalid IR or apply stricter validation.
+	
+	% --------------------------------------------------
+	% Instruction Set
+	% --------------------------------------------------
+	\section{Instruction Set}
+	
+	% --------------------------------------------------
+	% Textual IR Format (as parsed by IRTextParser)
+	% --------------------------------------------------
+	\subsection{Textual IR Format}
+	The C++ runtime includes a textual IR parser used by the tooling provided by the default ObjectIR stack, The format below reflects the concrete syntax consumed by \texttt{IRTextParser} and the JSON operands expected by the runtime.
+	this is the required first option besides Fob format for saving ObjectIR to a file.
+	
+	\subsubsection{Lexical Rules}
+	\begin{itemize}
+		\item Whitespace separates tokens; newlines terminate instruction lines.
+		\item Line comments start with \texttt{//} and continue to the end of the line.
+		\item Identifiers may include letters, digits, underscores, dots, and backticks (e.g. \texttt{List\`1}).
+		\item String literals use double quotes and support escapes: \texttt{\"}, \texttt{\\}, \texttt{\textbackslash n}, \texttt{\textbackslash r}, \texttt{\textbackslash t}.
+		\item Numeric literals support integer and decimal forms; negative literals are written with a leading \texttt{-}.
+	\end{itemize}
+	
+	\subsubsection{Keywords and Declarations}
+	\begin{itemize}
+		\item Keywords: \texttt{module}, \texttt{class}, \texttt{interface}, \texttt{struct}, \texttt{enum}, \texttt{method}, \texttt{constructor}, \texttt{field}, \texttt{property}, \texttt{static}, \texttt{virtual}, \texttt{abstract}, \texttt{private}, \texttt{public}, \texttt{protected}, \texttt{local}, \texttt{if}, \texttt{else}, \texttt{while}, \texttt{for}, \texttt{switch}, \texttt{case}, \texttt{return}, \texttt{implements}, \texttt{version}.
+		\item Local declarations inside method bodies use \texttt{local name: type}.
+		\item Labels are declared as \texttt{labelName:} and resolve branch targets.
+	\end{itemize}
+	
+	\subsubsection{Method Bodies}
+	\begin{itemize}
+		\item A method body is a sequence of local declarations and instruction lines inside \texttt{\{\}}.
+		\item Each instruction consumes the remainder of its line as operands; the parser stops at newline or a brace.
+		\item Branch operands may be numeric instruction indices or label names; labels are mapped to instruction indices during parsing.
+	\end{itemize}
+	
+	\subsubsection{Primitive Types}
+	\begin{itemize}
+		\item \texttt{void}, \texttt{bool}
+		\item \texttt{int8}, \texttt{int16}, \texttt{int32}, \texttt{int64}
+		\item \texttt{uint8}, \texttt{uint16}, \texttt{uint32}, \texttt{uint64}
+		\item \texttt{float32}, \texttt{float64}
+		\item \texttt{char}, \texttt{string}
+	\end{itemize}
+	
+	\subsubsection{Method References}
+	Method references used by \texttt{call}/\texttt{callvirt} follow the textual shape:
+	\begin{lstlisting}
+	TypeName.MethodName ( paramType1, paramType2 ) -> returnType
+	\end{lstlisting}
+	Constructors use \texttt{TypeName..ctor} as the method name in the text form.
+	
+	
+	\subsection{Conventions}
+	\begin{itemize}
+		\item Mnemonics are case-insensitive.
+		\item Identifiers are case-sensitive.
+		\item Stack effects are written as \texttt{inputs → outputs}.
+	\end{itemize}
+	
+	\subsection{Opcode Summary}
+	The following mnemonics are recognized by the Reference C++ runtime. Variants noted in the \emph{Aliases} column map to the same opcode.
+	
+	\begin{longtable}{|l|l|l|p{6.5cm}|}
+		\hline
+				\textbf{Mnemonic} & \textbf{Operands} & \textbf{Stack Effect} & \textbf{Notes / Aliases} \\
+		\hline
+		\endhead
+		\multicolumn{4}{|l|}{\textbf{Stack}} \\
+		\hline
+				\texttt{nop} & -- & $\varnothing \rightarrow \varnothing$ & No operation. \\
+				\texttt{dup} & -- & $a \rightarrow a, a$ & Duplicates the top stack value. \\
+				\texttt{pop} & -- & $a \rightarrow \varnothing$ & Discards the top stack value. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Loads / Constants}} \\
+		\hline
+				\texttt{ldarg} & \texttt{name} & $\varnothing \rightarrow v$ & Loads argument by name. \\
+				\texttt{ldloc} & \texttt{name} & $\varnothing \rightarrow v$ & Loads local by name. \\
+				\texttt{ldfld} & \texttt{Type.Field} & $obj \rightarrow v$ & Uses instance on stack; falls back to \texttt{this} if available. \\
+				\texttt{ldstr} & \texttt{"text"} & $\varnothing \rightarrow string$ & String literal. \\
+				\texttt{ldc} & \texttt{literal} & $\varnothing \rightarrow number$ & Integer constant (text form). \\
+				\texttt{ldi4} & \texttt{literal} & $\varnothing \rightarrow int32$ & Alias of integer constant load. \\
+				\texttt{ldi8} & \texttt{literal} & $\varnothing \rightarrow int64$ & Alias of 64-bit integer constant load. \\
+				\texttt{ldr4} & \texttt{literal} & $\varnothing \rightarrow float$ & Alias of 32-bit float constant load. \\
+				\texttt{ldr8} & \texttt{literal} & $\varnothing \rightarrow double$ & Alias of 64-bit float constant load. \\
+				\texttt{ldc.r4} & \texttt{literal} & $\varnothing \rightarrow float$ & Float constant. \\
+				\texttt{ldc.r8} & \texttt{literal} & $\varnothing \rightarrow double$ & Double constant. \\
+				\texttt{ldtrue} & -- & $\varnothing \rightarrow true$ & Push boolean true. \\
+				\texttt{ldfalse} & -- & $\varnothing \rightarrow false$ & Push boolean false. \\
+				\texttt{ldnull} & -- & $\varnothing \rightarrow null$ & Push null. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Stores}} \\
+		\hline
+				\texttt{starg} & \texttt{name} & $v \rightarrow \varnothing$ & Stores to argument by name. \\
+				\texttt{stloc} & \texttt{name} & $v \rightarrow \varnothing$ & Stores to local by name. \\
+				\texttt{stfld} & \texttt{Type.Field} & $obj, v \rightarrow \varnothing$ & Pops value then instance; falls back to \texttt{this} when needed. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Arithmetic / Unary}} \\
+		\hline
+				\texttt{add} & -- & $a, b \rightarrow (a + b)$ & String concatenation when either operand is string. \\
+				\texttt{sub} & -- & $a, b \rightarrow (a - b)$ &  \\
+				\texttt{mul} & -- & $a, b \rightarrow (a \times b)$ &  \\
+				\texttt{div} & -- & $a, b \rightarrow (a / b)$ & Division by zero throws. \\
+				\texttt{rem} & -- & $a, b \rightarrow (a \bmod b)$ & Integer-only. \\
+				\texttt{neg} & -- & $a \rightarrow (-a)$ &  \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Comparisons}} \\
+		\hline
+				\texttt{ceq} & -- & $a, b \rightarrow (a = b)$ &  \\
+				\texttt{cne} & -- & $a, b \rightarrow ( \neq b)$ &  \\
+				\texttt{clt} & -- & $a, b \rightarrow (a < b)$ &  \\
+				\texttt{cle} & -- & $a, b \rightarrow (a \le b)$ &  \\
+				\texttt{cgt} & -- & $a, b \rightarrow (a > b)$ &  \\
+				\texttt{cge} & -- & $a, b \rightarrow (a \ge b)$ &  \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Control Flow}} \\
+		\hline
+				\texttt{ret} & -- & $[v] \rightarrow \varnothing$ & Returns top of stack (or void if empty). \\
+				\texttt{br} & \texttt{label|index} & $\varnothing \rightarrow \varnothing$ & Unconditional branch. \\
+				\texttt{brtrue} & \texttt{label|index} & $c \rightarrow \varnothing$ & Branch if condition is truthy. \\
+				\texttt{brfalse} & \texttt{label|index} & $c \rightarrow \varnothing$ & Branch if condition is falsey. \\
+				\texttt{beq} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a = b$. \\
+				\texttt{bne} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a \neq b$. \\
+				\texttt{bgt} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a > b$. \\
+				\texttt{blt} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a < b$. \\
+				\texttt{bge} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a \ge b$. \\
+				\texttt{ble} & \texttt{label|index} & $a, b \rightarrow \varnothing$ & Branch if $a \le b$. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Object / Call}} \\
+		\hline
+				\texttt{newobj} & \texttt{Type} & $\varnothing \rightarrow obj$ & Allocates object instance. \\
+				\texttt{call} & method ref & $[args] \rightarrow [ret]$ & Static call. \\
+				\texttt{callvirt} & method ref & $obj, [args] \rightarrow [ret]$ & Virtual call; consumes instance. \\
+				\texttt{castclass} & \texttt{Type} & $obj \rightarrow obj$ & Throws on invalid cast. \\
+				\texttt{isinst} & \texttt{Type} & $obj \rightarrow obj|null$ & Returns null if not instance. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Arrays}} \\
+		\hline
+				\texttt{newarr} & \texttt{Type} & $len \rightarrow arr$ & Allocates array with length from stack. \\
+				\texttt{ldlen} & -- & $arr \rightarrow len$ & Reads array length. \\
+				\texttt{ldelem} & -- & $arr, idx \rightarrow elem$ & Loads array element. \\
+				\texttt{stelem} & -- & $arr, idx, val \rightarrow \varnothing$ & Stores array element. \\
+		\hline
+		\multicolumn{4}{|l|}{\textbf{Structured Control (JSON + IR Text)}} \\
+		\hline
+				\texttt{if} & blocks & $cond \rightarrow \varnothing$ & Operand provides then/else blocks. \\
+				\texttt{while} & condition+body & $\varnothing \rightarrow \varnothing$ & Operand provides condition and body. \\
+				\texttt{break} & -- & $\varnothing \rightarrow \varnothing$ & Breaks out of structured loop. \\
+				\texttt{continue} & -- & $\varnothing \rightarrow \varnothing$ & Continues structured loop. \\
+				\texttt{throw} & -- & $\varnothing \rightarrow \varnothing$ & Reserved; currently not implemented. \\
+		\hline
+	\end{longtable}
+	
+	\subsection{Opcode Aliases}
+	The runtime accepts the following alias mnemonics when decoding JSON or text IR:
+	\begin{itemize}
+		\item \texttt{ldcon} and \texttt{ldc} are equivalent.
+		\item \texttt{ldi4}/\texttt{ldi32}/\texttt{ldc.i4} map to integer constant load.
+		\item \texttt{ldi8}/\texttt{ldi64}/\texttt{ldc.i8} map to 64-bit integer constant load.
+		\item \texttt{ldr4}/\texttt{ldc.r4} map to 32-bit float constant load.
+		\item \texttt{ldr8}/\texttt{ldc.r8} map to 64-bit float constant load.
+		\item \texttt{beq.s}, \texttt{bne.s}, \texttt{bne.un}, \texttt{bgt.s}, \texttt{bgt.un}, \texttt{blt.s}, \texttt{blt.un}, \texttt{bge.s}, \texttt{bge.un}, \texttt{ble.s}, \texttt{ble.un} are treated as their base comparison branches.
+	\end{itemize}
+	
+	\subsection{Operands and JSON Shapes}
+	For JSON IR, instruction operands are encoded as objects. The following shapes are required by the C++ runtime:
+	\begin{itemize}
+		\item \texttt{ldarg}/\texttt{starg}: \texttt{\{ argumentName: "name" \}}
+		\item \texttt{ldloc}/\texttt{stloc}: \texttt{\{ localName: "name" \}}
+		\item \texttt{ldstr}/\texttt{ldc}: \texttt{\{ value: <literal>, type: "string|int32|float64|..." \}}
+		\item \texttt{ldfld}/\texttt{stfld}: \texttt{\{ field: "Type.Field" \}} or \texttt{\{ field: \{ declaringType, name, type \} \}}
+		\item \texttt{call}/\texttt{callvirt}: \texttt{\{ method: \{ declaringType, name, parameterTypes: [...], returnType \} \}}
+		\item \texttt{newobj}/\texttt{newarr}/\texttt{castclass}/\texttt{isinst}: \texttt{\{ type: "Type" \}}
+		\item Branches: \texttt{\{ target: "label" \}} or \texttt{\{ target: 12 \}} or \texttt{\{ offset: 12 \}}
+		\item \texttt{if}: \texttt{\{ thenBlock: [instructions], elseBlock: [instructions] \}}
+		\item \texttt{while}: \texttt{\{ condition: <Condition>, body: [instructions] \}}
+	\end{itemize}
+	
+	\subsection{Structured Conditions (JSON)}
+	Conditions are encoded as objects with a \texttt{kind}:
+	\begin{itemize}
+		\item \texttt{\{ kind: "stack" \}}: consumes a boolean-like value from the stack.
+		\item \texttt{\{ kind: "binary", operation: "ceq|cne|clt|cle|cgt|cge" \}}: compares two stack values.
+		\item \texttt{\{ kind: "expression", expression: <instruction> \}}: evaluates a single instruction to a boolean-like value.
+	\end{itemize}
+	
+	
+	
+	
+	\section{Examples}
+	simple hello world
+	\begin{lstlisting}[language=ObjectIR]
+module HelloWorld version 1.0.0 
+class Program {
+	ldstr "hello world"
+	call System.Console.WriteLine(string) -> void
+	ret
+}	
+	\end{lstlisting}
+	ObjectIR's hello world might seem a bit daunting at first if you
+	have ever worked with CSharp decompilation.
+	
+	notice how there isn't any "[square brackets?]".
+	
+	ObjectIR is interpreted or Compiled
+	
+	
+	
+	\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+		\begin{lstlisting}[language=ObjectIR]
+		module HelloWorld version 1.0.0 
+		class Program {
+			ldstr "hello world"
+			call System.Console.WriteLine(string) -> void
+			ret
+		}	
+	\end{lstlisting}
+	
+	
+	
+	% --------------------------------------------------
+	% Notes
+	% --------------------------------------------------
+	\section{Notes and Edge Cases}
+	This section records undefined behavior, verifier caveats, and backend-specific constraints.
+	
+	Json Support for ObjectIR Runtimes are to be removed in a later date as Json is much too
+	inefficient for storing programs, the switch to Fob is recommended if you want small file size or Text IR for everything else.
+	
+	
+	% --------------------------------------------------
+	% Appendices
+	% --------------------------------------------------
+	\section{Future Extensions}
+		
+	\section{Revision History}
+	\begin{longtable}{|l|l|p{8cm}|}
+		\hline
+		Version & Date & Notes \\
+		\hline
+		1.0 & January 18, 2026 & Initial ObjectIR language specification \\
+		\hline
+	\end{longtable}
+	
+\end{document}
