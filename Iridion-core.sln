@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "libs", "libs", "{6C4D298B-81FB-2B6B-5AB6-46205EDDC72C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectIR.Core", "libs\ObjectIR.Core\ObjectIR.Core.csproj", "{38D87AF4-0735-DE4A-E0A0-8EA33A946989}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{38D87AF4-0735-DE4A-E0A0-8EA33A946989}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38D87AF4-0735-DE4A-E0A0-8EA33A946989}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38D87AF4-0735-DE4A-E0A0-8EA33A946989}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38D87AF4-0735-DE4A-E0A0-8EA33A946989}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{38D87AF4-0735-DE4A-E0A0-8EA33A946989} = {6C4D298B-81FB-2B6B-5AB6-46205EDDC72C}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9340B243-709D-4C02-86E5-7A75175E07FA}
+	EndGlobalSection
+EndGlobal

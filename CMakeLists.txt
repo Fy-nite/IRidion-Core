@@ -16,6 +16,7 @@ set(BUILD_GUI OFF)
 option(BUILD_EXAMPLES "Build example programs" OFF)
 option(BUILD_PLUGINS "Build example plugins" OFF)
 option(BUILD_STATIC_RUNTIME "Build the objectir_runtime library as a static library" OFF)
+option(BUILD_STATIC_EXECUTABLE "Build the crystal executable statically with all libs embedded (platform-dependent)" OFF)
 # Find nlohmann/json - try system first, then fetch
 find_package(nlohmann_json QUIET)
 if(NOT nlohmann_json_FOUND)
@@ -35,10 +36,13 @@ endif()
 
 # Add the library
 ## Provide an option to build the runtime as a static library instead of a shared one.
-## This is useful when building a standalone OJRuntime executable that contains
+## This is useful when building a standalone crystal executable that contains
 ## all runtime symbols and does not require a separate DLL on Windows.
 set(OBJECTIR_RUNTIME_LINKAGE SHARED)
-if(BUILD_STATIC_RUNTIME)
+# If either the library or the executable is requested to be fully static,
+# prefer building the runtime library as a static library so it can be
+# embedded into the standalone executable.
+if(BUILD_STATIC_RUNTIME OR BUILD_STATIC_EXECUTABLE)
     set(OBJECTIR_RUNTIME_LINKAGE STATIC)
 endif()
 
@@ -96,18 +100,44 @@ set_target_properties(objectir_runtime PROPERTIES
 )
 
 # Build standalone executable
-add_executable(OJRuntime src/main.cpp)
-target_link_libraries(OJRuntime PRIVATE objectir_runtime)
-target_include_directories(OJRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_executable(crystal src/main.cpp)
+target_link_libraries(crystal PRIVATE objectir_runtime)
+target_include_directories(crystal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 if(BUILD_STATIC_RUNTIME)
     if(MINGW)
         # For MinGW builds, request static linking of libgcc and libstdc++ to minimize dll deps
-        target_link_options(OJRuntime PRIVATE "-static-libgcc" "-static-libstdc++")
+        target_link_options(crystal PRIVATE "-static-libgcc" "-static-libstdc++")
     elseif(MSVC)
         # For the MSVC toolchain prefer static CRT by setting the runtime library (MSVC >= 2019)
-        set_target_properties(OJRuntime PROPERTIES
+        set_target_properties(crystal PROPERTIES
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+endif()
+
+# When a fully static executable is requested, add platform specific linker
+# flags to request static linking of the C/C++ runtime and other system
+# libraries. Note: producing a fully static binary is platform-dependent and
+# may require installing static versions of system libraries (libc, libm, etc.).
+if(BUILD_STATIC_EXECUTABLE)
+    if(MSVC)
+        # MSVC: prefer static CRT
+        set_target_properties(crystal PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    elseif(MINGW)
+        # MinGW: request static linking of libgcc/libstdc++ and pass -static
+        target_link_options(crystal PRIVATE "-static" "-static-libgcc" "-static-libstdc++")
+    else()
+        # Generic UNIX/GNU toolchains: attempt fully static link with -static.
+        # This will succeed only if all required static libraries are available
+        # on the system. Users may need to install libc.a, libstdc++.a, etc.
+        target_link_options(crystal PRIVATE "-static")
+    endif()
+    # When building a static executable, also ensure the runtime library is static
+    # so its symbols are embedded directly into the executable.
+    if(NOT OBJECTIR_RUNTIME_LINKAGE STREQUAL "STATIC")
+        message(STATUS "Forcing objectir_runtime to STATIC because BUILD_STATIC_EXECUTABLE is set")
+        set_target_properties(objectir_runtime PROPERTIES TYPE STATIC)
     endif()
 endif()
 
@@ -202,7 +232,7 @@ endif()
 # When included as a subdirectory of a larger project the top-level CMake
 # generator is responsible for installation/exporting; exporting here can
 # trigger missing-dependency errors for targets brought in via FetchContent.
-if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR AND NOT BUILD_STATIC_EXECUTABLE)
     install(TARGETS objectir_runtime
             EXPORT ObjectIRTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
