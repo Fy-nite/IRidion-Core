@@ -10,11 +10,11 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 # Basic project-wide settings
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(BUILD_GUI ON)
+set(BUILD_GUI OFF)
 
 # Options
-option(BUILD_EXAMPLES "Build example programs" ON)
-option(BUILD_PLUGINS "Build example plugins" ON)
+option(BUILD_EXAMPLES "Build example programs" OFF)
+option(BUILD_PLUGINS "Build example plugins" OFF)
 option(BUILD_STATIC_RUNTIME "Build the objectir_runtime library as a static library" OFF)
 # Find nlohmann/json - try system first, then fetch
 find_package(nlohmann_json QUIET)
@@ -149,9 +149,7 @@ if(BUILD_GUI)
     endif()
 
     if(Qt_FOUND)
-        set(CMAKE_AUTOMOC ON)
-        set(CMAKE_AUTORCC ON)
-        set(CMAKE_AUTOUIC ON)
+ 
         add_executable(objectir_gui src/gui_frontend.cpp)
         target_link_libraries(objectir_gui PRIVATE objectir_runtime ${Qt_LIBS})
         target_include_directories(objectir_gui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -200,30 +198,36 @@ endif()
 
 
 # Install configuration
-install(TARGETS objectir_runtime
-        EXPORT ObjectIRTargets
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+# Only install/export package when this project is the top-level project.
+# When included as a subdirectory of a larger project the top-level CMake
+# generator is responsible for installation/exporting; exporting here can
+# trigger missing-dependency errors for targets brought in via FetchContent.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    install(TARGETS objectir_runtime
+            EXPORT ObjectIRTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-# Export the targets for use by other projects
-install(EXPORT ObjectIRTargets FILE ObjectIRTargets.cmake NAMESPACE ObjectIR:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR)
+    # Export the targets for use by other projects
+    install(EXPORT ObjectIRTargets FILE ObjectIRTargets.cmake NAMESPACE ObjectIR:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR)
 
-# Create and install CMake package config
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ObjectIRConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR
-)
+    # Create and install CMake package config
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ObjectIRConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR
+    )
 
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
-)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY AnyNewerVersion
+    )
 
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfigVersion.cmake DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/ObjectIRConfigVersion.cmake DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ObjectIR)
+endif()

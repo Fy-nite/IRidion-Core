@@ -154,6 +154,7 @@ void IRLoader::LoadTypeDefinition(std::shared_ptr<VirtualMachine> vm, const json
     std::string kind = typeJson["kind"];
     // Convert to lowercase for case-insensitive comparison
     std::transform(kind.begin(), kind.end(), kind.begin(), ::tolower);
+    
 
     if (kind == "class") {
         LoadClass(vm, typeJson);
